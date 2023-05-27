@@ -313,6 +313,188 @@ $postfix reload && systemctl restart postfix
 $echo "Test mail from postfix" | mail -r <SENDER_ADDRESS> -s "Test Postfix" <RECIPIENT_ADDRESS>
 ```
 
+## \\\\ SSH
+
+SSH hardening is crucial for maintaining the security and integrity of your system.
+It provides stronger authentication, protects against brute-force attacks, ensures encryption
+and data integrity, allows for granular access control, helps meet security compliance requirements,
+and defends against vulnerabilities. By implementing SSH hardening practices, you can significantly
+reduce the risk of unauthorized access and protect your sensitive information.
+
+upload an **ssh-public-key** into `/root/.ssh/authorized_keys` for future logins.
+This will allow you to login using your public key once the subsequent hardening steps are in place.
+
+update the **root** `/root/.ssh/config` file, like follow:
+
+```properties
+# Read more about SSH config files: https://linux.die.net/man/5/ssh_config
+# ~/.ssh/config
+
+# RSA keys are favored over ECDSA keys when backward compatibility ''is required'',
+# thus, newly generated keys are always either ED25519 or RSA (NOT ECDSA or DSA).
+# ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa_comment_$(date +%Y_%m_%d)     -C "$(hostname)-$(date +%Y-%m-%d)-comment"
+
+# ED25519 keys are favored over RSA keys when backward compatibility ''is not required''.
+# This is only compatible with OpenSSH 6.5+ and fixed-size (256 bytes).
+# ssh-keygen -t ed25519     -f ~/.ssh/id_ed25519_comment_$(date +%Y_%m_%d) -C "$(hostname)-$(date +%Y-%m-%d)-comment"
+# ssh-keygen -t ed25519-sk  -f ~/.ssh/id_ed25519_comment_$(date +%Y_%m_%d) -C "$(hostname)-$(date +%Y-%m-%d)-comment"
+# ------------------------------------------------------------------------------
+# Ensure KnownHosts are unreadable if leaked - it is otherwise easier to know which hosts your keys have access to.
+HashKnownHosts yes
+# Host keys the client accepts - order here is honored by OpenSSH
+HostKeyAlgorithms ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,rsa-sha2-256,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-512,rsa-
+sha2-512-cert-v01@openssh.com
+
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256
+MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+
+Host *
+  User root
+  Port 22
+  LogLevel INFO
+  Compression yes
+  SendEnv LANG LC_*
+  HashKnownHosts yes
+  GSSAPIAuthentication yes
+  IdentitiesOnly yes
+  AddressFamily inet
+  Protocol 2
+  ServerAliveInterval 60
+```
+
+harden the SSH configuration by open `/etc/ssh/sshd_config` and setup like follow:
+
+> _Note: the property `PermitRootLogin` is **not** setup as **recommended** because we not create a non root user_
+
+```properties
+Include /etc/ssh/sshd_config.d/*.conf
+
+Port 22
+AddressFamily inet
+ListenAddress 0.0.0.0
+
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# Ciphers and keying
+#RekeyLimit default none
+
+# Logging
+#SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Authentication:
+
+LoginGraceTime 60
+# on proxmox we have not create a non root user
+# so this is not setup as recommended, recommended would be 'PermitRootLogin no'
+PermitRootLogin yes
+StrictModes yes
+MaxAuthTries 4
+MaxSessions 10
+
+PubkeyAuthentication yes
+
+# Expect .ssh/authorized_keys2 to be disregarded by default in future.
+AuthorizedKeysFile .ssh/authorized_keys
+
+#AuthorizedPrincipalsFile none
+
+#AuthorizedKeysCommand none
+#AuthorizedKeysCommandUser nobody
+
+# For this to work you will also need host keys in /etc/ssh/ssh_known_hosts
+HostbasedAuthentication no
+# Change to yes if you don't trust ~/.ssh/known_hosts for
+# HostbasedAuthentication
+#IgnoreUserKnownHosts no
+# Don't read the user's ~/.rhosts and ~/.shosts files
+IgnoreRhosts yes
+
+# To disable tunneled clear text passwords, change to no here!
+PasswordAuthentication no
+PermitEmptyPasswords no
+
+# Change to yes to enable challenge-response passwords (beware issues with
+# some PAM modules and threads)
+KbdInteractiveAuthentication no
+
+# Kerberos options
+#KerberosAuthentication no
+#KerberosOrLocalPasswd yes
+#KerberosTicketCleanup yes
+#KerberosGetAFSToken no
+
+# GSSAPI options
+GSSAPIAuthentication no
+GSSAPICleanupCredentials yes
+#GSSAPIStrictAcceptorCheck yes
+#GSSAPIKeyExchange no
+
+# Set this to 'yes' to enable PAM authentication, account processing,
+# and session processing. If this is enabled, PAM authentication will
+# be allowed through the KbdInteractiveAuthentication and
+# PasswordAuthentication.  Depending on your PAM configuration,
+# PAM authentication via KbdInteractiveAuthentication may bypass
+# the setting of "PermitRootLogin without-password".
+# If you just want the PAM account and session checks to run without
+# PAM authentication, then enable this but set PasswordAuthentication
+# and KbdInteractiveAuthentication to 'no'.
+UsePAM yes
+
+AllowAgentForwarding yes
+AllowTcpForwarding no
+#GatewayPorts no
+X11Forwarding no
+#X11DisplayOffset 10
+#X11UseLocalhost yes
+#PermitTTY yes
+PrintMotd no
+#PrintLastLog yes
+#TCPKeepAlive yes
+PermitUserEnvironment no
+#Compression delayed
+ClientAliveInterval 15
+ClientAliveCountMax 3
+UseDNS no
+#PidFile /run/sshd.pid
+MaxStartups 10:30:60
+#PermitTunnel no
+#ChrootDirectory none
+#VersionAddendum none
+
+# no default banner path
+Banner /etc/issue.net
+
+# Allow client to pass locale environment variables
+AcceptEnv LANG LC_*
+
+# override default of no subsystems
+Subsystem sftp  /usr/lib/ssh/sftp-server -f AUTHPRIV -l INFO
+
+# Example of overriding settings on a per-user basis
+#Match User anoncvs
+#       X11Forwarding no
+#       AllowTcpForwarding no
+#       PermitTTY no
+#       ForceCommand cvs server
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+KexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256
+HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,ssh-rsa-cert-v01@openssh.com,ssh-ed25519,ssh-rsa,ecdsa-sha2-nistp521-cert-v01@openssh.com,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp521,ecdsa-sha2-nistp384,ecdsa-sha2-nistp256
+AuthenticationMethods publickey
+PubkeyAcceptedKeyTypes ssh-ed25519
+ChallengeResponseAuthentication no
+```
+
+restart the ssh service to ensuring that the modifications take effect:
+
+```sh
+$systemctl restart ssh
+```
+
 ## \\\\ Kernel and Network Tunings
 
 open the file `/etc/sysctl.conf` and replace with following content:
