@@ -735,6 +735,32 @@ verify the changes written correct and exist after restart:
 $cat /proc/cmdline
 ```
 
+#### Parameter Explanation
+
+`amd_iommu=on`:
+
+Enables AMD's IOMMU (Input-Output Memory Management Unit) technology, also known as AMD-Vi (AMD Virtualization for I/O). It is required for **GPU** passthrough, as it provides hardware support for input/output virtualization and allows direct device assignment to virtual machines.
+
+`iommu=pt`:
+
+Sets the IOMMU mode to "passthrough." It ensures that the IOMMU is configured to allow direct assignment of devices, such as **GPUs**, to virtual machines without any interference from the host operating system.
+
+`pcie_acs_override=downstream,multifunction`:
+
+Is related to PCIe ACS (Access Control Services) override. It helps in addressing potential compatibility issues when passing through certain PCIe devices. By specifying "downstream" and "multifunction," you are indicating that ACS override should be enabled for downstream devices and multifunction devices.
+
+`nofb`:
+
+Disables the framebuffer, which can help avoid conflicts or issues with graphics devices when performing **GPU** passthrough.
+
+`nomodeset`:
+
+**Prevents the kernel from loading video drivers** and setting display modes. It can be useful when passing through a **GPU** to a virtual machine, as it ensures that the GPU is **not actively used by the host operating system**.
+
+`initcall_blacklist=sysfb_init`:
+
+Adds the **sysfb_init** function to the initcall **blacklist**. It prevents the specified function from being called during the kernel initialization process. This can be useful if there are conflicts or issues related to framebuffer initialization.
+
 ### Setup VFIO Framework
 
 > _Verify the content in `/etc/modules`,
@@ -754,12 +780,13 @@ $cat /proc/cmdline
 > > - vfio_virqfd:
 > >   - This module is responsible for handling interrupts from the virtual machines using VFIO, allowing efficient
 > >     interrupt processing and reducing latency.
+> >   - NOTE: not available in newer kernel versions (below commented out)
 
 ```sh
 $echo 'vfio' > /etc/modules
 $echo 'vfio_iommu_type1' >> /etc/modules
 $echo 'vfio_pci' >> /etc/modules
-$echo 'vfio_virqfd' >> /etc/modules
+#$echo 'vfio_virqfd' >> /etc/modules
 ```
 
 ### Setup pve-blacklist.conf
@@ -967,5 +994,6 @@ $qm set <VM-ID> -scsi<NUMBER> /dev/disk/by-id/<DISK-ID>
 - <https://pve.proxmox.com/pve-docs/pve-admin-guide.pdf>{:target="\_blank"}
 - <https://pve.proxmox.com/wiki/Performance_Tweaks>{:target="\_blank"}
 - <https://pve.proxmox.com/wiki/ZFS:_Tips_and_Tricks#Install_on_a_high_performance_system>{:target="\_blank"}
-- <https://www.servethehome.com/how-to-pass-through-pcie-nics-with-proxmox-ve-on-intel-and-amd/>{:target="\_blank"}
-- <https://www.dlford.io/memory-tuning-proxmox-zfs/>{:target="\_blank"}
+- <https://www.servethehome.com/how-to-pass-through-pcie-nics-with-proxmox-ve-on-intel-and-amd>{:target="\_blank"}
+- <https://pve.proxmox.com/wiki/PCI_Passthrough>{:target="\_blank"}
+- <https://www.dlford.io/memory-tuning-proxmox-zfs>{:target="\_blank"}
