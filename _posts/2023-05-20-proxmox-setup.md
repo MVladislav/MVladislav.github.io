@@ -697,7 +697,7 @@ $nano /etc/default/grub
 locate the line starting with `GRUB_CMDLINE_LINUX_DEFAULT` and modify it as follows:
 
 ```properties
-GRUB_CMDLINE_LINUX_DEFAULT="quiet rootdelay=10 amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction nofb nomodeset initcall_blacklist=sysfb_init"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=on iommu=pt hugepagesz=1GB hugepages=1 pcie_acs_override=downstream,multifunction nofb nomodeset initcall_blacklist=sysfb_init"
 ```
 
 update the changes:
@@ -720,7 +720,7 @@ edit the kernel command line by running the following command:
 > and update it if necessary._
 
 ```sh
-$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet rootdelay=10 amd_iommu=on iommu=pt pcie_acs_override=downstream,multifunction nofb nomodeset initcall_blacklist=sysfb_init' > /etc/kernel/cmdline
+$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=on iommu=pt hugepagesz=1GB hugepages=1 pcie_acs_override=downstream,multifunction nofb nomodeset initcall_blacklist=sysfb_init' > /etc/kernel/cmdline
 ```
 
 update the changes:
@@ -799,14 +799,16 @@ $echo 'vfio_pci' >> /etc/modules
 > > GPU passthrough experience.
 > >
 > > > NOTE: Since our grub configuration, this setup could be not needed
+>
+> > NOTE: below blacklist is commented out, because newer kernel version not need to use blacklist because of vendor-reset
 
 ```sh
-$echo 'blacklist nouveau' > /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist amdgpu' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist radeon' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist nvidiafb' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist nvidia' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist nvidia-gpu' >> /etc/modprobe.d/pve-blacklist.conf
+#$echo 'blacklist nouveau' > /etc/modprobe.d/pve-blacklist.conf
+#$echo 'blacklist amdgpu' >> /etc/modprobe.d/pve-blacklist.conf
+#$echo 'blacklist radeon' >> /etc/modprobe.d/pve-blacklist.conf
+#$echo 'blacklist nvidiafb' >> /etc/modprobe.d/pve-blacklist.conf
+#$echo 'blacklist nvidia' >> /etc/modprobe.d/pve-blacklist.conf
+#$echo 'blacklist nvidia-gpu' >> /etc/modprobe.d/pve-blacklist.conf
 ```
 
 ### Setup iommu_unsafe_interrupts.conf
@@ -831,6 +833,8 @@ $echo 'options vfio_iommu_type1 allow_unsafe_interrupts=1' \
 ```sh
 $echo 'options kvm ignore_msrs=1 report_ignored_msrs=0' \
 > /etc/modprobe.d/kvm.conf
+$echo 'softdep amdgpu pre: vfio vfio_pci' \
+>> /etc/modprobe.d/kvm.conf
 ```
 
 ### Setup xhci_hcd.conf
@@ -851,12 +855,12 @@ $echo 'softdep xhci_hcd pre: vfio_pci' > /etc/modprobe.d/xhci_hcd.conf
 
 #### Identify GPU Information
 
-execute the following command to **find** for example NVIDIA **GPUs**:
+execute the following command to **find** your **GPUs**:
 
 > _note down the GPU address, such as "2b:00.0" (excluding the ".0" at the end)_
 
 ```sh
-$lspci | grep -i nvidia
+$lspci | grep -iE "VGA"
 ```
 
 use the following command to **retrieve** the **GPU** and **GPU-AUDIO** info required for the configuration file.:
