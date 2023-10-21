@@ -673,9 +673,53 @@ $sysctl --system
 
 Unlocking the Power of **GPU** and **USB-PCI** Card **Passthrough** in Proxmox
 
-### Setup Boot Parameters
+### // Setup BIOS Boot Options
 
-> _These steps ensure that the necessary boot parameters are properly configured for GPU passthrough in Proxmox._
+> _These steps ensure that the necessary boot parameters are properly configured for PCI passthrough in Proxmox._
+
+**SVM (Secure Virtual Machine)** `ENABLED`:
+
+SVM is AMD's version of Intel VT-x. It provides support for virtualization, allowing multiple operating systems to run concurrently on a single AMD processor.
+Enable SVM in the BIOS if you plan to use virtualization technologies such as AMD-V for running virtual machines on your system.
+
+**SMT (Simultaneous Multithreading)** `AUTO`:
+
+SMT is a technology that allows multiple threads to run on a single CPU core. It is AMD's equivalent to Intel's Hyper-Threading Technology.
+Enabling SMT improves multitasking performance by allowing each CPU core to handle multiple threads simultaneously. This is beneficial for applications that can utilize multiple threads.
+
+**Above 4G Decoding** `ENABLED`:
+
+This option allows the system to decode memory above the 4-gigabyte boundary. It's essential for systems with more than 4 GB of RAM and also relevant for devices that require memory-mapped I/O above 4 GB.
+Enable this option when your system has more than 4 GB of RAM or when you are using devices that require access to memory above the 4 GB limit, such as certain types of high-performance GPUs or RAID controllers.
+
+**RE-SIZE BAR** `DISABLED`:
+
+Resizable BAR is a feature that allows the CPU to access the entire GPU memory directly, enhancing data transfer speeds between the CPU and GPU.
+Enable Resizable BAR for improved gaming performance and faster data transfers, especially with modern GPUs and compatible CPUs.
+
+**IOMMU (Input-Output Memory Management Unit)** `ENABLED`:
+
+IOMMU is a memory management unit that is used to manage memory transfers between devices and the system's memory. It is crucial for virtualization, allowing hardware devices to be assigned directly to virtual machines.
+Enable IOMMU for virtualization setups, especially when using GPU passthrough, allowing virtual machines direct access to specific hardware components.
+
+**ACS (Access Control Services)** `ENABLED`:
+
+ACS allows finer control over PCIe devices, ensuring that devices in the same IOMMU group can be separated for better virtualization support.
+Enabling ACS is often essential for more advanced virtualization setups, especially when GPU passthrough is used, to prevent conflicts between devices and ensure proper isolation for virtual machines.
+
+**ARI support (Alternative Routing-ID Interpretation Support)** `AUTO`:
+
+ARI is a PCIe feature that provides additional capability to address more devices on the PCIe bus.
+Enabling ARI support allows systems to address more PCIe devices efficiently, which is particularly relevant in high-performance computing environments where numerous PCIe devices are used.
+
+**ARI enumeration (Alternative Routing-ID Interpretation Enumeration (ARI Forwarding Support))** `AUTO`:
+
+ARI Enumeration is the ability of the BIOS to detect and support PCIe devices that use ARI.
+Enabling ARI Enumeration ensures that PCIe devices using ARI are properly recognized and utilized by the system, ensuring efficient addressing and communication with these devices.
+
+### // Setup Grub Boot Parameters
+
+> _These steps ensure that the necessary boot parameters are properly configured for in general PCI passthrough and specific for GPU passthrough in Proxmox._
 
 determine whether the system is using Grub or systemd as the bootloader:
 
@@ -697,7 +741,7 @@ $nano /etc/default/grub
 locate the line starting with `GRUB_CMDLINE_LINUX_DEFAULT` and modify it as follows:
 
 ```properties
-GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=on iommu=pt hugepagesz=1GB hugepages=1 pcie_acs_override=downstream,multifunction nofb nomodeset initcall_blacklist=sysfb_init"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction default_hugepagesz=1G hugepagesz=1G hugepages=1 amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1"
 ```
 
 update the changes:
@@ -720,7 +764,7 @@ edit the kernel command line by running the following command:
 > and update it if necessary._
 
 ```sh
-$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=on iommu=pt hugepagesz=1GB hugepages=1 pcie_acs_override=downstream,multifunction nofb nomodeset initcall_blacklist=sysfb_init' > /etc/kernel/cmdline
+$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction default_hugepagesz=1G hugepagesz=1G hugepages=1 amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1' > /etc/kernel/cmdline
 ```
 
 update the changes:
@@ -737,7 +781,7 @@ $cat /proc/cmdline
 
 #### Parameter Explanation
 
-`amd_iommu=on`:
+`amd_iommu=force_enable`:
 
 Enables AMD's IOMMU (Input-Output Memory Management Unit) technology, also known as AMD-Vi (AMD Virtualization for I/O). It is required for **GPU** passthrough, as it provides hardware support for input/output virtualization and allows direct device assignment to virtual machines.
 
@@ -748,6 +792,11 @@ Sets the IOMMU mode to "passthrough." It ensures that the IOMMU is configured to
 `pcie_acs_override=downstream,multifunction`:
 
 Is related to PCIe ACS (Access Control Services) override. It helps in addressing potential compatibility issues when passing through certain PCIe devices. By specifying "downstream" and "multifunction," you are indicating that ACS override should be enabled for downstream devices and multifunction devices.
+
+- Downstream:
+  This value means that ACS is overridden for downstream ports of PCIe switches. This helps ensure devices connected to PCIe switches are placed into separate IOMMU groups.
+- Multifunction:
+  This value ensures that ACS is overridden for multifunction devices. Multifunction devices are PCIe devices that have multiple functions on a single device, such as Ethernet controllers with multiple ports.
 
 `nofb`:
 
@@ -761,7 +810,53 @@ Disables the framebuffer, which can help avoid conflicts or issues with graphics
 
 Adds the **sysfb_init** function to the initcall **blacklist**. It prevents the specified function from being called during the kernel initialization process. This can be useful if there are conflicts or issues related to framebuffer initialization.
 
-### Setup VFIO Framework
+`default_hugepagesz=1G`:
+
+Hugepages are memory pages that are significantly larger than the standard 4 KB pages.
+They can be 2 MB, 1 GB, or even larger.
+Hugepages help reduce overhead in memory management and TLB (Translation Lookaside Buffer) misses,
+especially for applications with large memory requirements, like databases or virtual machines.
+
+Setting the default_hugepagesz is useful when specific applications or services benefit from large memory pages.
+Some virtualization setups, especially those using GPU passthrough with **amdgpu**,
+can gain performance benefits by allocating large, contiguous blocks of memory,
+making this setting beneficial in such scenarios.
+
+`hugepagesz=1G`:
+
+It allows you to explicitly set the size of hugepages to be used.
+Common values include 2M for 2 MB hugepages and 1G for 1 GB hugepages.
+
+Explicitly setting the hugepagesz is essential when you want to ensure a specific size for hugepages.
+This can be crucial for certain applications that require a particular hugepage size for optimal performance,
+including some virtualization setups that involve GPU passthrough.
+
+`hugepages=1`:
+
+Specifies how many hugepages should be reserved.
+The total memory allocated for hugepages equals `hugepages * hugepagesz`.
+
+It's beneficial in cases where you want to reserve a specific amount of memory for applications or services that can take advantage of hugepages,
+such as virtual machines using GPU passthrough.
+Allocating a sufficient number of hugepages ensures that these applications have fast, contiguous memory access.
+
+`amdgpu.sg_display=0`:
+
+Disable S/G (scatter/gather) display (i.e., display from system memory).
+This option is only relevant on APUs.
+Set this option to 0 to disable S/G display if you experience flickering or other issues under memory pressure and report the issue.
+
+`amd_pstate=passive`:
+
+The AMD CPU frequency scaling driver (`amd_pstate`) dynamically adjusts the CPU frequency and voltage based on the system's load.
+When set to "passive," it allows the CPU to scale down its frequency and voltage when the system is idle but doesn't actively scale up when there's increased demand.
+This can save power and reduce heat production when the CPU is not under heavy load.
+
+`amd_pstate.shared_mem=1`:
+
+Shared memory support allows the AMD CPU frequency scaling driver to share information between CPU cores, facilitating better coordination and synchronization between cores. This can lead to more efficient frequency scaling decisions, especially in multi-core processors, improving overall system performance and responsiveness.
+
+### // Setup VFIO Framework
 
 > _Verify the content in `/etc/modules`,
 > the first command will clear the file_
@@ -771,12 +866,12 @@ Adds the **sysfb_init** function to the initcall **blacklist**. It prevents the 
 > >
 > > - vfio:
 > >   - The VFIO module is the core component of the VFIO framework, providing the infrastructure for PCI device passthrough.
+> > - vfio-pci:
+> >   - The VFIO PCI module provides support for PCI devices within the VFIO framework, enabling the passthrough
+> >     of PCI devices to virtual machines.
 > > - vfio_iommu_type1:
 > >   - This module enables the VFIO IOMMU (Input-Output Memory Management Unit) driver, allowing the virtual
 > >     machines to directly access hardware resources.
-> > - vfio_pci:
-> >   - The VFIO PCI module provides support for PCI devices within the VFIO framework, enabling the passthrough
-> >     of PCI devices to virtual machines.
 > > - vfio_virqfd:
 > >   - This module is responsible for handling interrupts from the virtual machines using VFIO, allowing efficient
 > >     interrupt processing and reducing latency.
@@ -784,12 +879,12 @@ Adds the **sysfb_init** function to the initcall **blacklist**. It prevents the 
 
 ```sh
 $echo 'vfio' > /etc/modules
-$echo 'vfio_iommu_type1' >> /etc/modules
 $echo 'vfio_pci' >> /etc/modules
+$echo 'vfio_iommu_type1' >> /etc/modules
 #$echo 'vfio_virqfd' >> /etc/modules
 ```
 
-### Setup pve-blacklist.conf
+### // Setup pve-blacklist.conf
 
 > _Verify the content in `/etc/modprobe.d/pve-blacklist.conf`,
 > the first command will clear the file_
@@ -797,21 +892,17 @@ $echo 'vfio_pci' >> /etc/modules
 > > Blacklisting these drivers, such as `nouveau`, `amdgpu`, `radeon`, `nvidiafb`, `nvidia`, and `nvidia-gpu`,
 > > prevents them from loading during system startup. This can help avoid conflicts and ensure a smoother
 > > GPU passthrough experience.
-> >
-> > > NOTE: Since our grub configuration, this setup could be not needed
->
-> > NOTE: below blacklist is commented out, because newer kernel version not need to use blacklist because of vendor-reset
 
 ```sh
-#$echo 'blacklist nouveau' > /etc/modprobe.d/pve-blacklist.conf
-#$echo 'blacklist amdgpu' >> /etc/modprobe.d/pve-blacklist.conf
-#$echo 'blacklist radeon' >> /etc/modprobe.d/pve-blacklist.conf
-#$echo 'blacklist nvidiafb' >> /etc/modprobe.d/pve-blacklist.conf
-#$echo 'blacklist nvidia' >> /etc/modprobe.d/pve-blacklist.conf
-#$echo 'blacklist nvidia-gpu' >> /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist nouveau' > /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist amdgpu' >> /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist radeon' >> /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist nvidiafb' >> /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist nvidia' >> /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist nvidia-gpu' >> /etc/modprobe.d/pve-blacklist.conf
 ```
 
-### Setup iommu_unsafe_interrupts.conf
+### // Setup iommu_unsafe_interrupts.conf
 
 > Enabling unsafe interrupts through "iommu_unsafe_interrupts.conf" **improves device performance** but poses **security risks**.
 > It allows the VFIO driver to process **device interrupts without safety checks**, benefiting certain devices.
@@ -824,7 +915,7 @@ $echo 'options vfio_iommu_type1 allow_unsafe_interrupts=1' \
 > /etc/modprobe.d/iommu_unsafe_interrupts.conf
 ```
 
-### Setup kvm.conf
+### // Setup kvm.conf
 
 > Adding options to the KVM configuration in Proxmox ignores and avoids reporting specific Model
 > Specific Registers (MSRs). This improves compatibility and prevents conflicts, especially for GPU passthrough.
@@ -833,21 +924,21 @@ $echo 'options vfio_iommu_type1 allow_unsafe_interrupts=1' \
 ```sh
 $echo 'options kvm ignore_msrs=1 report_ignored_msrs=0' \
 > /etc/modprobe.d/kvm.conf
-$echo 'softdep amdgpu pre: vfio vfio_pci' \
->> /etc/modprobe.d/kvm.conf
 ```
 
-### Setup xhci_hcd.conf
+### // Setup softdep.conf
 
-> The command configures a soft dependency between the xHCI USB driver and the VFIO PCI driver in Proxmox.
-> This ensures the correct driver initialization order for GPU passthrough and other PCI device passthrough
-> scenarios like usb-pci-devices.
+> The command configures a soft dependency between the defined driver and the VFIO PCI driver in Proxmox.
+> This ensures the correct driver initialization order for defined driver passthrough and other PCI device passthrough
+> scenarios like the defined drivers below for amdgpu, usb-pci-devices, ...
 
 ```sh
-$echo 'softdep xhci_hcd pre: vfio_pci' > /etc/modprobe.d/xhci_hcd.conf
+$echo 'softdep amdgpu pre: vfio-pci' >> /etc/modprobe.d/softdep.conf
+$echo 'softdep snd_hda_intel pre: vfio-pci' >> /etc/modprobe.d/softdep.conf
+$echo 'softdep xhci_hcd pre: vfio-pci' >> /etc/modprobe.d/softdep.conf
 ```
 
-### Setup vfio.conf
+### // Setup vfio.conf
 
 > These steps allow the vfio-pci module to bind to the specified GPU and GPU-AUDIO devices,
 > disabling VGA output. This configuration is useful for GPU passthrough and can improve
@@ -880,7 +971,7 @@ $echo 'options vfio-pci ids=<GPU>,<AUDIO> disable_vga=1' \
 >> /etc/modprobe.d/vfio.conf
 ```
 
-### Update and Reboot
+### // Update and Reboot
 
 > Updates the initramfs (initial RAM file system) for all installed kernels on your system,
 > to ensures that the changes made to the configuration files are reflected in the initramfs
@@ -981,13 +1072,13 @@ $qm rescan --vmid <VM-ID>
 search for **disk-id**:
 
 ```sh
-$lsblk -o +MODEL,SERIAL,PATH,MOUNTPOINT
+$lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,UUID --exclude 7
 ```
 
 add **disk** to **vm**:
 
 ```sh
-$qm set <VM-ID> -scsi<NUMBER> /dev/disk/by-id/<DISK-ID>
+$qm set <VM-ID> -scsi<NUMBER> /dev/disk/by-id/<DISK-ID/UUID>
 ```
 
 ---
@@ -1001,3 +1092,25 @@ $qm set <VM-ID> -scsi<NUMBER> /dev/disk/by-id/<DISK-ID>
 - <https://www.servethehome.com/how-to-pass-through-pcie-nics-with-proxmox-ve-on-intel-and-amd>{:target="\_blank"}
 - <https://pve.proxmox.com/wiki/PCI_Passthrough>{:target="\_blank"}
 - <https://www.dlford.io/memory-tuning-proxmox-zfs>{:target="\_blank"}
+- <https://www.reddit.com/r/VFIO/comments/11mqtna/successful_passthrough_of_an_rx_7900_xt/>{:target="\_blank"}
+- <https://forum.level1techs.com/t/vfio-passthrough-in-2023-call-to-arms/199671/101?page=4>{:target="\_blank"}
+- <https://docs.kernel.org/gpu/amdgpu/module-parameters.html>{:target="\_blank"}
+- <https://bbs.archlinux.org/viewtopic.php?pid=2070655#p2070655>{:target="\_blank"}
+- <https://forum.manjaro.org/t/cannot-isolate-gpu-for-vfio/139292/5>{:target="\_blank"}
+- <https://wiki.archlinux.org/title/PCI_passthrough_via_OVMF>{:target="\_blank"}
+- <https://www.wundertech.net/how-to-set-up-gpu-passthrough-on-proxmox/>{:target="\_blank"}
+- <https://3os.org/infrastructure/proxmox/gpu-passthrough/gpu-passthrough-to-vm/#proxmox-configuration-for-gpu-passthrough>{:target="\_blank"}
+- <https://pve.proxmox.com/wiki/PCI(e)_Passthrough>{:target="\_blank"}
+- kernel-parameters
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_iommu>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=iommu>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=pcie_acs_override>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=nofb>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=nomodeset>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=initcall_blacklist>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=default_hugepagesz>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=hugepagesz>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=hugepages>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amdgpu.sg_display>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_pstate>{:target="\_blank"}
+  - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_pstate.shared_mem>{:target="\_blank"}
