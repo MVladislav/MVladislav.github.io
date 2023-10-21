@@ -22,3 +22,6 @@ package-lock.json
 assets/js/dist
 
 assets/img/favicons/t1
+
+assets/img/avatar2.png
+templates/README.md
