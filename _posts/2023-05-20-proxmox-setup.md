@@ -184,6 +184,9 @@ $swapoff -a
 
 ## \\\\ SMTP Configuration
 
+> Since version `> 8.1` it is possible to setup SMTP over gui under `Datacenter > Notifications`.
+> Manual config below is not anymore needed.
+
 ### // GUI Setup
 
 over the gui set up email addresses for each users
@@ -741,7 +744,7 @@ $nano /etc/default/grub
 locate the line starting with `GRUB_CMDLINE_LINUX_DEFAULT` and modify it as follows:
 
 ```properties
-GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction default_hugepagesz=1G hugepagesz=1G hugepages=1 amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction initcall_blacklist=sysfb_init hugepagesz=1G hugepages=16 hugepagesz=2M default_hugepagesz=2M amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1"
 ```
 
 update the changes:
@@ -764,7 +767,7 @@ edit the kernel command line by running the following command:
 > and update it if necessary._
 
 ```sh
-$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction default_hugepagesz=1G hugepagesz=1G hugepages=1 amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1' > /etc/kernel/cmdline
+$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction initcall_blacklist=sysfb_init hugepagesz=1G hugepages=16 hugepagesz=2M default_hugepagesz=2M amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1' > /etc/kernel/cmdline
 ```
 
 update the changes:
@@ -897,9 +900,10 @@ $echo 'vfio_iommu_type1' >> /etc/modules
 $echo 'blacklist nouveau' > /etc/modprobe.d/pve-blacklist.conf
 $echo 'blacklist amdgpu' >> /etc/modprobe.d/pve-blacklist.conf
 $echo 'blacklist radeon' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist nvidiafb' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist nvidia' >> /etc/modprobe.d/pve-blacklist.conf
-$echo 'blacklist nvidia-gpu' >> /etc/modprobe.d/pve-blacklist.conf
+$echo 'blacklist nvidia*' >> /etc/modprobe.d/pve-blacklist.conf
+# $echo 'blacklist nvidiafb' >> /etc/modprobe.d/pve-blacklist.conf
+# $echo 'blacklist nvidia' >> /etc/modprobe.d/pve-blacklist.conf
+# $echo 'blacklist nvidia-gpu' >> /etc/modprobe.d/pve-blacklist.conf
 ```
 
 ### // Setup iommu_unsafe_interrupts.conf
@@ -989,37 +993,38 @@ $reboot
 
 > _Example for setup ubuntu-23.04 cloud-init template_
 >
-> > NOTE: change **img** `lunar-server-cloudimg-amd64-disk-kvm.img` as you needed (also the url for download)
+> > NOTE: change **img** `noble-server-cloudimg-amd64.img` as you needed (also the url for download)
 > > NOTE: change **vm-id** `9999` as you needed
 > > NOTE: check **storage-name** `local-zfs` for your needs (maybe your's is local-lvm)
 
 download the ubuntu-23.04 image:
 
 ```sh
-$wget https://cloud-images.ubuntu.com/lunar/current/lunar-server-cloudimg-amd64-disk-kvm.img \
--O /var/lib/vz/template/iso/lunar-server-cloudimg-amd64-disk-kvm.img
+$wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img \
+-O /var/lib/vz/template/iso/noble-server-cloudimg-amd64.img
 ```
 
 verify the sha256 hash:
 
 ```sh
-$curl -s https://cloud-images.ubuntu.com/lunar/current/SHA256SUMS | grep \
-"lunar-server-cloudimg-amd64-disk-kvm.img" > /var/lib/vz/template/iso/SHA256SUMS
-$cd /var/lib/vz/template/iso && sha256sum -c SHA256SUMS 2>&1 ; cd --
+$cd /var/lib/vz/template/iso \
+&& curl -s https://cloud-images.ubuntu.com/noble/current/SHA256SUMS \
+| grep "noble-server-cloudimg-amd64.img" \
+| sha256sum -c - ; cd --
 ```
 
 create a new VM:
 
 ```sh
-$qm create 9999 --name "template-ubuntu-lunar-cloud-init" --memory 2048 --net0 virtio,bridge=vmbr0 \
---cpu cputype=host,flags="+aes;+pdpe1gb" --sockets 1 --cores 2 --numa 0
+$qm create 9999 --name "template-ubuntu-noble-cloud-init" --memory 2048 --net0 virtio,bridge=vmbr0 \
+--cpu cputype=x86-64-v2-AES,flags="" --sockets 1 --cores 2 --numa 0
 ```
 
 setup additional VM properties:
 
 ```sh
 # import the downloaded disk to local-zfs storage
-$qm importdisk 9999 /var/lib/vz/template/iso/lunar-server-cloudimg-amd64-disk-kvm.img local-zfs
+$qm importdisk 9999 /var/lib/vz/template/iso/noble-server-cloudimg-amd64.img local-zfs
 # finally attach the new disk to the VM as scsi drive
 $qm set 9999 --scsihw virtio-scsi-single --scsi0 local-zfs:vm-9999-disk-0,ssd=1,discard=on,iothread=1
 
@@ -1029,6 +1034,9 @@ $qm set 9999 --boot c --bootdisk scsi0
 $qm set 9999 --serial0 socket --vga serial0
 $qm set 9999 --agent 1
 $qm set 9999 --hotplug disk,network,usb
+$qm set 9999 --machine q35
+$qm set 9999 --tablet 0
+$qm set 9999 --ostype l26
 
 # add cloud init config to install guest agent on first start
 $mkdir -p /var/lib/vz/snippets
@@ -1101,6 +1109,8 @@ $qm set <VM-ID> -scsi<NUMBER> /dev/disk/by-id/<DISK-ID/UUID>
 - <https://www.wundertech.net/how-to-set-up-gpu-passthrough-on-proxmox/>{:target="\_blank"}
 - <https://3os.org/infrastructure/proxmox/gpu-passthrough/gpu-passthrough-to-vm/#proxmox-configuration-for-gpu-passthrough>{:target="\_blank"}
 - <https://pve.proxmox.com/wiki/PCI(e)_Passthrough>{:target="\_blank"}
+- <https://docs.renderex.ae/posts/Enabling-hugepages/>{:target="\_blank"}
+- <https://forum.proxmox.com/threads/hey-proxmox-community-lets-talk-about-resources-isolation.124256/>{:target="\_blank"}
 - kernel-parameters
   - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_iommu>{:target="\_blank"}
   - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=iommu>{:target="\_blank"}
