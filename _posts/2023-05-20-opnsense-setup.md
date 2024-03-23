@@ -146,8 +146,9 @@ perform some tuneing to improve the system
 ```properties
 net.inet.tcp.tso=1 # TCP Offload Engine
 net.inet.tcp.soreceive_stream=1 # optimized kernel socket interface
-net.inet.tcp.mssdflt=1240 # improve efficiency while processing IP fragments
+net.inet.tcp.mssdflt=1460 # improve efficiency while processing IP fragments
 net.inet.tcp.abc_l_var=52 # improve efficiency while processing IP fragments
+net.inet.tcp.initcwnd_segments=44 #
 net.inet.tcp.minmss=536 # minimum segment size, or smallest payload of data which a single IPv4 TCP segment will agree to transmit
 
 net.inet.udp.checksum=1 # UDP Checksums
@@ -165,28 +166,37 @@ kern.random.fortuna.minpoolsize=128 # RNG entropy pool for vpn
 
 net.pf.source_nodes_hashsize=1048576 # PF firewall hash table size
 
+# Receive-side scaling (https://docs.opnsense.org/troubleshooting/performance.html)
 net.isr.maxthreads=-1 # uncaps the amount of CPU’s which can be used for netisr processing
 net.isr.bindthreads=1 # binds each of the ISR threads to 1 CPU core
 net.inet.rss.enabled=1 # enable Receive Side Scaling
+# for 4-core systems, use ‘2’
+# for 8-core systems, use ‘3’
+# for 16-core systems, use ‘4’
 net.inet.rss.bits=3 # amount of bits representing the number of CPU cores (3=8 cores)
 
 net.isr.dispatch=deferred # netisr dispatch policy
 net.isr.defaultqlimit=2048 # Default netisr per-protocol, per-CPU queue limit if not set by protocol
 
 hw.ibrs_disable=1 # Disable Indirect Branch Restricted Speculation (Spectre V2 mitigation) changed from default to 1
+# vm.pmap.pti = 0 # Page Table Isolation (Meltdown mitigation, requires reboot.)
 
 hw.ix.enable_aim=1 # Enable adaptive interrupt moderation
 hw.ix.flow_control=0 # Default flow control used for all adapters
 hw.ixl.enable_head_writeback=0 # For detecting last completed TX descriptor by hardware, use value written by HW instead of checking descriptors
 hw.vtnet.lro_disable=1 # Disable hardware LRO
 
-net.inet.ip.intr_queue_maxlen=3000 # Maximum size of IP input queue
-net.inet.ip.maxfragpackets=3000 # Maximum number if IPv4 fragment reassembly queue entries
+net.inet.ip.intr_queue_maxlen=2048 # Maximum size of IP input queue
+net.inet.ip.maxfragpackets=2048 # Maximum number if IPv4 fragment reassembly queue entries
 net.inet.ip.maxfragsperpacket=1000 # Maximum number of IPv4 fragments allowed per packet
 net.route.multipath=1 # Enable route multipath
 
-hw.intr_storm_threshold=10000 # Number of consecutive interrupts before storm protection is enabled
+hw.intr_storm_threshold=9000 # Number of consecutive interrupts before storm protection is enabled
 hw.pci.honor_msi_blacklist=0 # Honor chipset blacklist for MSI/MSI-X
+
+# net.inet6.ip6.intr_queue_maxlen = 4096
+# net.link.ifqmaxlen = 2048
+# net.route.netisr_maxqlen = 4096
 ```
 
 ### // Trust > \*
@@ -241,9 +251,9 @@ create an **OPNsense certificate**, by using the **intermediate-ca**, to handle 
     - Statistics: **checked**
     - Description: **SUB: Bogon - Multicast + Broadcast**
   - SUB_RFC1918_BOGON_LOCAL
-    - Content: **`10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,100.64.0.0/10,224.0.0.0/4,255.255.255.255`**
+    - Content: **`10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,224.0.0.0/4,255.255.255.255`**
     - Statistics: **checked**
-    - Description: **SUB: Bogon - RFC1918 + Local + Carrier-grade NAT + Multicast + Broadcast**
+    - Description: **SUB: Bogon - RFC1918 + Local + Multicast + Broadcast**
   - SUB_6_GLOBAL_PUBLIC
     - Content: **`2000::/3`**
     - Statistics: **checked**
@@ -253,12 +263,12 @@ create an **OPNsense certificate**, by using the **intermediate-ca**, to handle 
     - Statistics: **checked**
     - Description: **SUB: IPv6 Unique Local Address**
 - Type: **Port(s)**
-  - PORT_DNS_INSIDE_ALLOW
-    - Content: **`53`**
-    - Description: **DNS: ports allowed for inside**
-  - PORT_DNS_OUTSIDE_BLOCK
+  - PORT_DNS_BLOCK
     - Content: **`53,853,5353,5355,9953`**
-    - Description: **DNS: ports blocked for outside**
+    - Description: **PORT: DNS block ports (for outside connections)**
+  - PORT_DNS_BLOCK
+    - Content: **`2055,9200`**
+    - Description: **PORT: loopback disable log for ports**
 
 #### GeoIP settings
 
@@ -271,7 +281,7 @@ add following api url with your `<LICENSE-KEY>`
 - create groups as you need, for example create a default group for allow access to public network
   > you need later to create the firewall rules
   - Name: **GROUP_N_NET_D**
-  - Description: **GROUP: allow to public network default access**
+  - Description: **allow to public network default access**
   - Members: **_add the interfaces you want to allow access the network with default firewall rules_**
   - GUI groups: **checked**
 
@@ -301,7 +311,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
 
 ![Floating Rules Firewall](/assets/img/posts/opnsense/Floating_Rules_Firewall_1684417217425_0.png)
 
-- Description: **BLOCK: f:: all mdns on port 5353**
+- Description: **BLOCK:: F: all mdns on port 5353**
   - Action: **Block**
   - Quick: **checked**
   - Interface: **nothing selected**
@@ -314,7 +324,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Destination: **any**
   - Destination port range: **5353 - 5353**
   - Log: **checked**
-- Description: **BLOCK: f:: all mdns on ip address**
+- Description: **BLOCK:: F: all mdns on ip address**
   - Action: **Block**
   - Quick: **checked**
   - Interface: **nothing selected**
@@ -327,7 +337,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Destination: **IP_FILTER_MDNS**
   - Destination port range: **any - any**
   - Log: **checked**
-- Description: **BLOCK: f:: DNS (outside)**
+- Description: **BLOCK:: F: DNS (outside)**
   - Action: **Block**
   - Quick: **checked**
   - Interface: **nothing selected**
@@ -338,7 +348,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Source: **any**
   - Destination / Invert: **checked**
   - Destination: **IP_DNS_NTP_INSIDE**
-  - Destination port range: **PORT_DNS_OUTSIDE_BLOCK - PORT_DNS_OUTSIDE_BLOCK**
+  - Destination port range: **PORT_DNS_BLOCK - PORT_DNS_BLOCK**
   - Log: **checked**
 - Description: **ALLOW: f:: NTP requested to internal NTP**
   - Action: **Pass**
@@ -353,7 +363,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Destination: **IP_DNS_NTP_INSIDE**
   - Destination port range: **NTP - NTP**
   - Log: **checked**
-- Description: **BLOCK: f:: if not active rule exist - ipv4**
+- Description: **BLOCK:: F: no rule - ipv4**
   - Action: **Block**
   - Quick: **unchecked**
   - Interface: **nothing selected**
@@ -365,7 +375,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Destination / Invert: **unchecked**
   - Destination: **any**
   - Log: **checked**
-- Description: **BLOCK: f:: if not active rule exist - ipv6**
+- Description: **BLOCK:: F: no rule - ipv6**
   - Action: **Block**
   - Quick: **unchecked**
   - Interface: **nothing selected**
@@ -382,12 +392,24 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
 
 ![WAN Rules Firewall](/assets/img/posts/opnsense/WAN_Rules_Firewall_1684416446355_0.png)
 
-- Description: **BLOCK: 7. WAN:: all**
+- Description: **BLOCK:: WAN: no rule - ipv4**
   - Action: **Block**
   - Quick: **checked**
   - Interface: **WAN**
   - Direction: **in**
-  - TCP/IP Version: **IPv4+IPV6**
+  - TCP/IP Version: **IPv4**
+  - Protocol: **any**
+  - Source / Invert: **unchecked**
+  - Source: **any**
+  - Destination / Invert: **unchecked**
+  - Destination: **any**
+  - Log: **checked**
+- Description: **BLOCK:: WAN: no rule - ipv6**
+  - Action: **Block**
+  - Quick: **checked**
+  - Interface: **WAN**
+  - Direction: **in**
+  - TCP/IP Version: **IPV6**
   - Protocol: **any**
   - Source / Invert: **unchecked**
   - Source: **any**
@@ -399,7 +421,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
 
 ![GROUP_N_NET_D Rules Firewall](/assets/img/posts/opnsense/GROUP_N_NET_D_Rules_Firewall_1684416035121_0.png)
 
-- Description: **BLOCK: gnnd:: DNS (outside)**
+- Description: **BLOCK:: GPND: DNS (outside)**
   - Action: **Block**
   - Quick: **checked**
   - Interface: **GROUP_N_NET_D**
@@ -410,9 +432,9 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Source: **any**
   - Destination / Invert: **checked**
   - Destination: **IP_DNS_NTP_INSIDE**
-  - Destination port range: **PORT_DNS_OUTSIDE_BLOCK - PORT_DNS_OUTSIDE_BLOCK**
+  - Destination port range: **PORT_DNS_BLOCK - PORT_DNS_BLOCK**
   - Log: **checked**
-- Description: **ALLOW: gnnd:: DNS (intern)**
+- Description: **ALLOW:: GPND: DNS (inside)**
   - Action: **Pass**
   - Quick: **checked**
   - Interface: **GROUP_N_NET_D**
@@ -423,9 +445,9 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Source: **GROUP_N_NET_D net**
   - Destination / Invert: **unchecked**
   - Destination: **IP_DNS_NTP_INSIDE**
-  - Destination port range: **PORT_DNS_INSIDE_ALLOW - PORT_DNS_INSIDE_ALLOW**
+  - Destination port range: **DNS - DNS**
   - Log: **checked**
-- Description: **ALLOW: gnnd:: internet on IPv4 except RFC1918/bogon**
+- Description: **ALLOW:: GPND: internet access (ipv4)**
   - Action: **Pass**
   - Quick: **checked**
   - Interface: **GROUP_N_NET_D**
@@ -437,6 +459,22 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Destination / Invert: **checked**
   - Destination: **SUB_RFC1918_BOGON_LOCAL**
   - Log: **checked**
+
+#### LOOPBACK
+
+- Description: **ALLOW:: LB:: 9200**
+  - Action: **Pass**
+  - Quick: **checked**
+  - Interface: **Loopback**
+  - Direction: **out**
+  - TCP/IP Version: **IPv4**
+  - Protocol: **TCP/UDP**
+  - Source / Invert: **unchecked**
+  - Source: **127.0.0.1/32**
+  - Destination / Invert: **unchecked**
+  - Destination: **127.0.0.1/32**
+  - Destination port range: **PORT_LB_NO_LOG - PORT_LB_NO_LOG**
+  - Log: **unchecked**
 
 ### // Shaper
 
@@ -533,10 +571,10 @@ create new entry, below an example for mail format to be added
 
 Mail format ([info](https://mmonit.com/monit/documentation/monit.html#Message-format)):
 
-> update `monit@<HOST>` in **from** to your needs
+> update `monit <no-reply@DOMAIN>` in **from** to your needs
 
 ```yaml
-from: monit@<HOST>
+from: monit <no-reply@DOMAIN>
 subject: $SERVICE $EVENT at $DATE
 message: Monit $ACTION $SERVICE at $DATE on $HOST:
   $DESCRIPTION
@@ -689,6 +727,7 @@ Monit
 - <https://forum.opnsense.org/index.php?PHPSESSID=ahi5e19a2tl303rir594sgmn88&topic=27394.msg160740#msg160740>{:target="\_blank"}
 - tunings
   - <https://docs.opnsense.org/troubleshooting/performance.html>{:target="\_blank"}
-  - <https://teklager.se/en/knowledge-base/opnsense-performance-optimization/>{:target="\_blank"}
-  - <https://binaryimpulse.com/2022/11/opnsense-performance-tuning-for-multi-gigabit-internet/>{:target="\_blank"}
-  - <https://www.reddit.com/r/OPNsenseFirewall/comments/b2uhpw/performance_tuning_help/>{:target="\_blank"}
+  - <https://teklager.se/en/knowledge-base/opnsense-performance-optimization>{:target="\_blank"}
+  - <https://binaryimpulse.com/2022/11/opnsense-performance-tuning-for-multi-gigabit-internet>{:target="\_blank"}
+  - <https://www.reddit.com/r/OPNsenseFirewall/comments/b2uhpw/performance_tuning_help>{:target="\_blank"}
+  - <https://calomel.org/freebsd_network_tuning.html>{:target="\_blank"}
