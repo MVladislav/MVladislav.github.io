@@ -1017,7 +1017,7 @@ create a new VM:
 
 ```sh
 $qm create 9999 --name "template-ubuntu-noble-cloud-init" --memory 2048 --net0 virtio,bridge=vmbr0 \
---cpu cputype=x86-64-v2-AES,flags="" --sockets 1 --cores 2 --numa 0
+--cpu cputype=x86-64-v2-AES --sockets 1 --cores 2 --numa 0
 ```
 
 setup additional VM properties:
