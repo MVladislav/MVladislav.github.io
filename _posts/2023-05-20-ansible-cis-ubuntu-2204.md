@@ -115,6 +115,8 @@ all:
           ansible_host: 192.168.1.10
           ansible_ssh_private_key_file: ~/.ssh/id_ed25519
           pl_a_host_default_ntp: 192.168.1.1
+          pl_a_host_fallback_ntp: 192.168.1.1
+          pl_a_cis_setup: true
           pl_a_cis_setup_aide: true
           pl_a_cis_ipv6_required: true
         host2:
@@ -122,6 +124,8 @@ all:
           ansible_host: 192.168.1.11
           ansible_ssh_private_key_file: ~/.ssh/id_ed25519
           pl_a_host_default_ntp: time.cloudflare.com
+          pl_a_host_fallback_ntp: time.cloudflare.com
+          pl_a_cis_setup: true
           pl_a_cis_setup_aide: false
           pl_a_cis_ipv6_required: false
   vars:
@@ -153,26 +157,35 @@ $nano playbook.yml
       cis_ubuntu2204_section4: true
       cis_ubuntu2204_section5: true
       cis_ubuntu2204_section6: true
+      cis_ubuntu2204_section7: true
       # -------------------------
-      cis_ubuntu2204_rule_1_4_1: false # bootloader password
-      cis_ubuntu2204_set_boot_pass: false # bootloader password
-      cis_ubuntu2204_rule_1_4_3: false # authentication required for single user mode
+      cis_ubuntu2204_rule_5_1_24: true
+      cis_ubuntu2204_rule_5_1_24_ssh_user: "{{ ansible_user }}"
+      cis_ubuntu2204_rule_5_1_24_ssh_pub_key: "<ADD_PUB_KEY>"
       # -------------------------
-      cis_ubuntu2204_rule_5_4_2: false # lockout for failed password attempts # NOTE: will fail to use password
+      cis_ubuntu2204_rule_1_3_1_3: true # AppArmor complain mode
+      cis_ubuntu2204_rule_1_3_1_4: false # AppArmor enforce mode
       # -------------------------
-      cis_ubuntu2204_rule_1_6_1_3: false # AppArmor complain mode
-      cis_ubuntu2204_rule_1_6_1_4: false # AppArmor enforce mode
+      cis_ubuntu2204_rule_1_4_1: false # bootloader password (disabled)
+      cis_ubuntu2204_set_boot_pass: false # bootloader password (disabled)
+      cis_ubuntu2204_disable_boot_pass: true # bootloader password (disabled)
+      # -------------------------
+      cis_ubuntu2204_rule_3_1_3: false # bluetooth service
+      cis_ubuntu2204_rule_3_1_3_remove: false # bluetooth service
       # -------------------------
       cis_ubuntu2204_allow_gdm_gui: true
-      cis_ubuntu2204_allow_autofs: true
-      cis_ubuntu2204_rule_1_1_10: false # Disable USB Storage
-      cis_ubuntu2204_time_synchronization_service: chrony # chrony | systemd-timesyncd | ntp
-      cis_ubuntu2204_time_synchronization_ntp_server: '{{ pl_a_host_default_ntp | default("time.cloudflare.com") }}'
-      cis_ubuntu2204_time_synchronization_ntp_fallback_server: ntp.ubuntu.com
+      cis_ubuntu2204_allow_autofs: true # Disable auto mount, set to true to allow it and not disable
+      cis_ubuntu2204_rule_1_1_1_8: false # Disable USB Storage, set to false to not disable
+      cis_ubuntu2204_time_synchronization_service: chrony # chrony | systemd-timesyncd
+      cis_ubuntu2204_time_synchronization_time_server:
+        - uri: time.cloudflare.com
+          config: iburst
+        - uri: ntp.ubuntu.com
+          config: iburst
       cis_ubuntu2204_allow_cups: true
       # -------------------------
-      cis_ubuntu2204_install_aide: "{{ pl_a_cis_setup_aide | default(false) | bool }}"
-      cis_ubuntu2204_config_aide: "{{ pl_a_cis_setup_aide | default(false) | bool }}"
+      cis_ubuntu2204_install_aide: "{{ cis_setup_aide | default(false) | bool }}"
+      cis_ubuntu2204_config_aide: "{{ cis_setup_aide | default(false) | bool }}"
       cis_ubuntu2204_aide_cron:
         cron_user: root
         cron_file: aide
@@ -183,18 +196,26 @@ $nano playbook.yml
         aide_month: "*"
         aide_weekday: "*"
       # -------------------------
-      cis_ubuntu2204_required_ipv6: "{{ pl_a_cis_ipv6_required | default(false) | bool }}"
-      cis_ubuntu2204_firewall: ufw
-      cis_ubuntu2204_firewall_ufw_outgoing_policy: allow
+      cis_ubuntu2204_journald_system_max_use: 4G
+      cis_ubuntu2204_journald_system_keep_free: 8G
+      cis_ubuntu2204_journald_runtime_max_use: 256M
+      cis_ubuntu2204_journald_runtime_keep_free: 512M
+      cis_ubuntu2204_journald_max_file_sec: 1month
       # -------------------------
-      cis_ubuntu2204_ssh_allow_groups: null
+      cis_ubuntu2204_required_ipv6: "{{ cis_ipv6_required | default(false) | bool }}"
+      cis_ubuntu2204_firewall: ufw
+      # -------------------------
       cis_ubuntu2204_cron_allow_users:
         - root
       cis_ubuntu2204_at_allow_users:
         - root
-      cis_ubuntu2204_pwquality:
-        - key: "minlen"
-          value: "8"
+      # -------------------------
+      cis_ubuntu2204_faillock_deny: 5
+      cis_ubuntu2204_faillock_unlock_time: 900
+      cis_ubuntu2204_faillock_minlen: 8
+      cis_ubuntu2204_password_complexity:
+        - key: "minclass"
+          value: "3"
         - key: "dcredit"
           value: "-1"
         - key: "ucredit"
@@ -225,5 +246,5 @@ $ansible-playbook -i inventory.yml playbook.yml --ask-become-pass -k
 
 ## \\\\ Resources & More information's
 
-- <https://github.com/MVladislav/ansible-cis-ubuntu-2204>{:target="\_blank"}
 - <https://downloads.cisecurity.org/>{:target="\_blank"}
+- <https://github.com/MVladislav/ansible-cis-ubuntu-2204>{:target="\_blank"}
