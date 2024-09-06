@@ -514,7 +514,7 @@ open the file `/etc/sysctl.conf` and replace with following content:
 # ==> kernel
 
 # https://en.wikipedia.org/wiki/Syslog#Severity_levels
-# Uncomment the following to stop low-level messages on console
+# stop low-level messages on console
 kernel.printk=3 4 1 3
 
 # Enable process address space protection
@@ -528,17 +528,28 @@ fs.inotify.max_user_instances=8192
 # Cache extend
 fs.inotify.max_user_watches=524288
 
+# limit the ability of a compromised process to PTRACE_ATTACH on other processes running under the same user
+kernel.yama.ptrace_scope=1
+
+###################################################################
+# Magic system request Key
+# 0=disable, 1=enable all, >1 bitmask of sysrq functions
+# See https://www.kernel.org/doc/html/latest/admin-guide/sysrq.html
+# for what other values do
+#kernel.sysrq=438
+kernel.sysrq=0
+
 # Background save may fail under low memory condition
 vm.overcommit_memory=0
 
-# swapp is not used, so we can turn it complete off
-vm.swappiness=0
+# swapp set to 1, but not quite disabling it. Will prevent OOM killer from killing processes when running out of physical memory.
+vm.swappiness=1
 
 # Adjust vfs cache
 # https://lonesysadmin.net/2013/12/22/better-linux-disk-caching-performance-vm-dirty_ratio/
 # Decriase dirty cache to faster flush on disk
-vm.dirty_background_ratio=5
-vm.dirty_ratio=10
+#vm.dirty_background_ratio=5
+#vm.dirty_ratio=10
 
 ###################################################################
 # ==> network
@@ -556,6 +567,7 @@ net.ipv4.conf.default.send_redirects=0
 # Disable IP forwarding for IPv4 & IPv6
 # This prevents the system from forwarding packets between interfaces, which can help prevent man-in-the-middle attacks
 net.ipv4.ip_forward=0
+net.ipv4.conf.all.forwarding=0
 #  Enabling this option disables Stateless Address Autoconfiguration
 #  based on Router Advertisements for this host
 net.ipv6.conf.all.forwarding=0
@@ -578,9 +590,9 @@ net.ipv6.conf.default.accept_redirects=0
 net.ipv4.conf.all.secure_redirects=0
 net.ipv4.conf.default.secure_redirects=0
 
-# Log Martian Packets
-net.ipv4.conf.all.log_martians=1
-net.ipv4.conf.default.log_martians=1
+# Log Martian Packets disabled
+net.ipv4.conf.all.log_martians=0
+net.ipv4.conf.default.log_martians=0
 
 # Ignore bogus ICMP errors
 net.ipv4.icmp_echo_ignore_broadcasts=1
@@ -608,9 +620,10 @@ net.ipv4.ip_no_pmtu_disc=1
 # Disable TCP timestamps (RFC1323/RFC7323)
 net.ipv4.tcp_timestamps=0
 
+# uncomment below to use, for this setup we let it enabled
 # Enable the use of TCP timestamps
 # This makes it more difficult for an attacker to perform a TCP spoofing attack
-net.ipv4.tcp_timestamps=1
+#net.ipv4.tcp_timestamps=1
 
 # Enable source address verification for IPv6
 # This makes it more difficult for an attacker to spoof their IP address
@@ -627,11 +640,12 @@ net.core.rmem_max=134217728
 net.core.wmem_max=134217728
 
 # Maximum number of packets queued on the input side
-net.core.netdev_max_backlog=2000
+net.core.netdev_max_backlog=3000
 
 # Enable the use of TCP fast open
 # This allows the system to establish a TCP connection more quickly and improves performance
-net.ipv4.tcp_fastopen=1
+#net.ipv4.tcp_fastopen=1
+net.ipv4.tcp_fastopen=3
 
 # Enable the use of TCP window scaling
 # increase Linux autotuning TCP buffer limit to 128MB (64MB)
@@ -652,18 +666,23 @@ net.ipv4.tcp_moderate_rcvbuf=1
 # Don't cache ssthresh from previous connection
 net.ipv4.tcp_no_metrics_save=1
 
-vm.max_map_count=262144
+net.ipv4.tcp_low_latency=1
+
+vm.max_map_count=1048576
 
 # Netfilter should be turned off on bridge devices
 net.bridge.bridge-nf-call-iptables=0
 net.bridge.bridge-nf-call-arptables=0
 net.bridge.bridge-nf-call-ip6tables=0
 
-###################################################################
-fs.file-max=262144
-net.core.somaxconn=4096
+# ###################################################################
+fs.file-max=2097152
+net.core.somaxconn=65535
 net.ipv4.tcp_max_syn_backlog=4096
 net.ipv4.tcp_mem=4194304 4194304 4194304
+vm.nr_hugepages=2048
+net.core.rps_sock_flow_entries=32768
+net.ipv4.tcp_mtu_probing=1
 ```
 
 run following command to perform the changes:
@@ -993,9 +1012,9 @@ $reboot
 
 > _Example for setup ubuntu-23.04 cloud-init template_
 >
-> > NOTE: change **img** `noble-server-cloudimg-amd64.img` as you needed (also the url for download)
-> > NOTE: change **vm-id** `9999` as you needed
-> > NOTE: check **storage-name** `local-zfs` for your needs (maybe your's is local-lvm)
+> > - NOTE: change **img** `noble-server-cloudimg-amd64.img` as you needed (also the url for download)
+> > - NOTE: change **vm-id** `9999` as you needed
+> > - NOTE: check **storage-name** `local-zfs` for your needs (maybe your's is local-lvm)
 
 download the ubuntu-23.04 image:
 
@@ -1007,41 +1026,56 @@ $wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.
 verify the sha256 hash:
 
 ```sh
-$cd /var/lib/vz/template/iso \
-&& curl -s https://cloud-images.ubuntu.com/noble/current/SHA256SUMS \
-| grep "noble-server-cloudimg-amd64.img" \
-| sha256sum -c - ; cd --
+$cd /var/lib/vz/template/iso && \
+curl -s https://cloud-images.ubuntu.com/noble/current/SHA256SUMS | \
+grep "noble-server-cloudimg-amd64.img" | \
+sha256sum -c - ; cd --
 ```
 
 create a new VM:
 
 ```sh
-$qm create 9999 --name "template-ubuntu-noble-cloud-init" --memory 2048 --net0 virtio,bridge=vmbr0 \
+$qm create 9999 --name "template-s-ubuntu-noble" --memory 2048 --net0 virtio,bridge=vmbr0 \
 --cpu cputype=x86-64-v2-AES --sockets 1 --cores 2 --numa 0
 ```
 
-setup additional VM properties:
+add cloud img as drive or empty drive:
 
 ```sh
 # import the downloaded disk to local-zfs storage
 $qm importdisk 9999 /var/lib/vz/template/iso/noble-server-cloudimg-amd64.img local-zfs
 # finally attach the new disk to the VM as scsi drive
 $qm set 9999 --scsihw virtio-scsi-single --scsi0 local-zfs:vm-9999-disk-0,ssd=1,discard=on,iothread=1
+```
 
+setup additional VM properties:
+
+```sh
 # add cloud-init cd-rom drive
-$qm set 9999 --ide2 local-zfs:cloudinit
-$qm set 9999 --boot c --bootdisk scsi0
-$qm set 9999 --serial0 socket --vga serial0
+$qm set 9999 --balloon 0
+$qm set 9999 --scsi2 local-zfs:cloudinit
+$qm set 9999 --boot order='scsi0'
+#$qm set 9999 --serial0 socket --vga serial0
 $qm set 9999 --agent 1
 $qm set 9999 --hotplug disk,network,usb
+$qm set 9999 --bios ovmf
+$qm set 9999 --efidisk0 local-zfs:0,efitype=4m,pre-enrolled-keys=0
 $qm set 9999 --machine q35
 $qm set 9999 --tablet 0
 $qm set 9999 --ostype l26
+```
 
+cloud init custom config:
+
+```sh
 # add cloud init config to install guest agent on first start
 $mkdir -p /var/lib/vz/snippets
 $cat <<EOF >>/var/lib/vz/snippets/ubuntu.yaml
 #cloud-config
+keyboard:
+  layout: "de"
+  variant: ""
+
 runcmd:
     - apt update
     - apt install -y qemu-guest-agent
@@ -1054,6 +1088,109 @@ convert VM as template:
 
 ```sh
 $qm template 9999
+```
+
+### // Create a Cloud-Init autoinstall Template
+
+> _Example for setup ubuntu-24.04-live-server cloud-init template over autoinstall,
+> which installs in this example for as client usage 'ubuntu-desktop-minimal'_
+>
+> > - NOTE: change **iso** `ubuntu-24.04-live-server-amd64.iso` as you needed (also the url for download)
+> > - NOTE: change **vm-id** `9998` as you needed
+> > - NOTE: check **storage-name** `local-zfs` for your needs (maybe your's is local-lvm)
+> > - NOTE: check **SHA512_PASSPHRASE** and **LUKS_PASSPHRASE** to be updated with your credentials
+
+download the ubuntu-server-24.04 image:
+
+```sh
+$wget https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso \
+-O /var/lib/vz/template/iso/ubuntu-24.04-live-server-amd64.iso
+```
+
+verify the sha256 hash:
+
+```sh
+$cd /var/lib/vz/template/iso && \
+curl -s https://releases.ubuntu.com/24.04/SHA256SUMS | \
+grep "ubuntu-24.04-live-server-amd64.iso" | \
+sha256sum -c - ; cd --
+```
+
+create a new VM:
+
+```sh
+$qm create 9998 --name "template-c-ubuntu-noble" --memory 2048 --net0 virtio,bridge=vmbr0 \
+--cpu cputype=x86-64-v2-AES --sockets 1 --cores 2 --numa 0
+```
+
+add empty drive and iso:
+
+```sh
+$qm set 9998 --scsihw virtio-scsi-single --scsi0 local-zfs:32,ssd=1,discard=on,iothread=1
+$qm set 9998 --scsi1 local-zfs:iso/ubuntu-24.04-live-server-amd64.iso,media=cdrom
+```
+
+setup additional VM properties:
+
+```sh
+# add cloud-init cd-rom drive
+$qm set 9998 --balloon 0
+$qm set 9998 --vga virtio
+$qm set 9998 --agent 1
+$qm set 9998 --hotplug disk,network,usb
+$qm set 9998 --bios ovmf
+$qm set 9998 --efidisk0 local-zfs:0,efitype=4m,pre-enrolled-keys=0
+$qm set 9998 --machine q35
+$qm set 9998 --tablet 0
+$qm set 9998 --ostype l26
+```
+
+cloud init custom autoinstall config:
+
+```sh
+# add cloud init config to install guest agent and ubuntu client desktop on first start
+$mkdir -p /var/lib/vz/snippets
+$touch /var/lib/vz/snippets/meta-data
+$cat <<EOF >>/var/lib/vz/snippets/user-data
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US
+  keyboard:
+    layout: de
+  identity:
+    hostname: 9GB9qiabF1kDD8W1RFQ9
+    username: iwashere
+    password: 'SHA512_PASSPHRASE' # pragma: allowlist secret
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all
+      password: LUKS_PASSPHRASE
+  ssh:
+    install-server: yes
+    authorized-keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPT2hL6eFCOia2N6NqaxcmCl9l6vw4pcj7H3qFMGAtST infra-default
+    allow-pw: no
+  source:
+    search_drivers: true
+  packages:
+    - qemu-guest-agent
+    - ubuntu-desktop-minimal
+EOF
+
+$cd /var/lib/vz/snippets && \
+mkisofs -V cidata -lJR -o /var/lib/vz/template/iso/cloud-init.iso user-data meta-data && \
+cd --
+
+$qm set 9998 --scsi2 local-zfs:iso/cloud-init.iso,media=cdrom
+$qm set 9998 --boot order='scsi0;scsi1'
+```
+
+convert VM as template:
+
+```sh
+$qm template 9998
 ```
 
 ---
@@ -1073,6 +1210,14 @@ you can re-scan and fix vm's by run:
 
 ```sh
 $qm rescan --vmid <VM-ID>
+```
+
+### // qm unlock
+
+if vm is locked for example after an power outage
+
+```sh
+$qm unlock <VM-ID>
 ```
 
 ### // assign complete drivers to a VM
@@ -1111,6 +1256,8 @@ $qm set <VM-ID> -scsi<NUMBER> /dev/disk/by-id/<DISK-ID/UUID>
 - <https://pve.proxmox.com/wiki/PCI(e)_Passthrough>{:target="\_blank"}
 - <https://docs.renderex.ae/posts/Enabling-hugepages/>{:target="\_blank"}
 - <https://forum.proxmox.com/threads/hey-proxmox-community-lets-talk-about-resources-isolation.124256/>{:target="\_blank"}
+- <https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html>{:target="\_blank"}
+- <https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-quickstart.html>{:target="\_blank"}
 - kernel-parameters
   - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_iommu>{:target="\_blank"}
   - <https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=iommu>{:target="\_blank"}
