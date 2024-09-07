@@ -545,6 +545,10 @@ vm.overcommit_memory=0
 # swapp set to 1, but not quite disabling it. Will prevent OOM killer from killing processes when running out of physical memory.
 vm.swappiness=1
 
+# Enable Transparent Huge Pages (THP)
+vm.nr_hugepages=2048 #128
+#vm.nr_hugepages_mempolicy=1
+
 # Adjust vfs cache
 # https://lonesysadmin.net/2013/12/22/better-linux-disk-caching-performance-vm-dirty_ratio/
 # Decriase dirty cache to faster flush on disk
@@ -590,7 +594,7 @@ net.ipv6.conf.default.accept_redirects=0
 net.ipv4.conf.all.secure_redirects=0
 net.ipv4.conf.default.secure_redirects=0
 
-# Log Martian Packets disabled
+# Log Martian Packets (disabled)
 net.ipv4.conf.all.log_martians=0
 net.ipv4.conf.default.log_martians=0
 
@@ -635,15 +639,19 @@ net.ipv6.route.flush=1
 
 # allow testing with buffers up to 128MB (64MB)
 ## Maximum receive socket buffer size
-net.core.rmem_max=134217728
+net.core.rmem_max=134217728 #67108864
 ## Maximum send socket buffer size
-net.core.wmem_max=134217728
+net.core.wmem_max=134217728 #67108864
 
 # Maximum number of packets queued on the input side
 net.core.netdev_max_backlog=3000
 
 # Enable the use of TCP fast open
 # This allows the system to establish a TCP connection more quickly and improves performance
+# - 0: Disable TCP Fast Open (default if not explicitly set).
+# - 1: Enable TCP Fast Open for outgoing connections (clients).
+# - 2: Enable TCP Fast Open for incoming connections (servers).
+# - 3: Enable TCP Fast Open for both outgoing and incoming connections.
 #net.ipv4.tcp_fastopen=1
 net.ipv4.tcp_fastopen=3
 
@@ -652,11 +660,14 @@ net.ipv4.tcp_fastopen=3
 # This allows the system to handle large TCP window sizes and improves performance
 net.ipv4.tcp_window_scaling=3
 ## Minimum, initial and max TCP Receive buffer size in Bytes
-net.ipv4.tcp_rmem=4096 87380 134217728
+net.ipv4.tcp_rmem=4096 87380 134217728 #67108864
 ## Minimum, initial and max buffer space allocated
-net.ipv4.tcp_wmem=4096 87380 134217728
+net.ipv4.tcp_wmem=4096 87380 134217728 #67108864
 
-net.ipv4.tcp_congestion_control=cubic
+net.ipv4.tcp_congestion_control=bbr #bbr|cubic
+
+# recommended for hosts with jumbo frames enabled
+net.ipv4.tcp_mtu_probing=1
 
 # recommended to enable 'fair queueing'
 net.core.default_qdisc=fq
@@ -676,13 +687,16 @@ net.bridge.bridge-nf-call-arptables=0
 net.bridge.bridge-nf-call-ip6tables=0
 
 # ###################################################################
-fs.file-max=2097152
-net.core.somaxconn=65535
+fs.file-max=2097152 #262144
+net.core.somaxconn=65535 #4096
 net.ipv4.tcp_max_syn_backlog=4096
 net.ipv4.tcp_mem=4194304 4194304 4194304
-vm.nr_hugepages=2048
 net.core.rps_sock_flow_entries=32768
-net.ipv4.tcp_mtu_probing=1
+
+# ###################################################################
+# check below if to use instead - if you have performance penalties
+#net.ipv4.tcp_timestamps=1
+#net.ipv4.ip_no_pmtu_disc=0
 ```
 
 run following command to perform the changes:
@@ -1070,7 +1084,7 @@ cloud init custom config:
 ```sh
 # add cloud init config to install guest agent on first start
 $mkdir -p /var/lib/vz/snippets
-$cat <<EOF >>/var/lib/vz/snippets/ubuntu.yaml
+$cat <<EOF >/var/lib/vz/snippets/ubuntu.yaml
 #cloud-config
 keyboard:
   layout: "de"
@@ -1151,7 +1165,7 @@ cloud init custom autoinstall config:
 # add cloud init config to install guest agent and ubuntu client desktop on first start
 $mkdir -p /var/lib/vz/snippets
 $touch /var/lib/vz/snippets/meta-data
-$cat <<EOF >>/var/lib/vz/snippets/user-data
+$cat <<EOF >/var/lib/vz/snippets/user-data
 #cloud-config
 autoinstall:
   version: 1
