@@ -233,27 +233,23 @@ create an **OPNsense certificate**, by using the **intermediate-ca**, to handle 
 #### Aliases
 
 - Type: **Host(s)**
-  - IP_FILTER_MDNS
-    - Content: **`224.0.0.251,ff02::fb`**
-    - Statistics: **checked**
-    - Description: **SERVICE: (4+6) MDNS**
-  - IP_DNS_NTP_INSIDE
+  - IP_S_DNS_NTP_INTERN
     - Content: **`192.168.1.1,fd00:affe:affe:0001::1`**
     - Statistics: **checked**
-    - Description: **SERVICE: (4+6) internal services for DNS, NTP, ...**
+    - Description: **IP: service internal DNS,NTP (IPv 4+6)**
 - Type: **Network(s)**
-  - SUB_RFC_1918
+  - SUB_RFC1918
     - Content: **`10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`**
     - Statistics: **checked**
     - Description: **SUB: RFC 1918 private network standard**
-  - SUB_BOGON_MULTICAST_BROADCAST
-    - Content: **`224.0.0.0/4,255.255.255.255`**
-    - Statistics: **checked**
-    - Description: **SUB: Bogon - Multicast + Broadcast**
   - SUB_RFC1918_BOGON_LOCAL
-    - Content: **`10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,224.0.0.0/4,255.255.255.255`**
+    - Content: **`10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,224.0.0.0/4,255.255.255.255,fe80::/10,::1/128,ff00::/8,fc00::/7,ff02::1,ff02::2,2001:db8::/32`**
     - Statistics: **checked**
-    - Description: **SUB: Bogon - RFC1918 + Local + Multicast + Broadcast**
+    - Description: **SUB: RFC1918 + Bogon + Local + Multicast + Broadcast**
+  - IP_S_MULTI_BROAD
+    - Content: **`ff00::/8,224.0.0.0/4,255.255.255.255,ff02::1,ff02::c`**
+    - Statistics: **checked**
+    - Description: **IP: sub multicast + broadcast addresses (IPv 4+6)**
   - SUB_6_GLOBAL_PUBLIC
     - Content: **`2000::/3`**
     - Statistics: **checked**
@@ -266,8 +262,8 @@ create an **OPNsense certificate**, by using the **intermediate-ca**, to handle 
   - PORT_DNS_BLOCK
     - Content: **`53,853,5353,5355,9953`**
     - Description: **PORT: DNS block ports (for outside connections)**
-  - PORT_DNS_BLOCK
-    - Content: **`2055,9200`**
+  - PORT_LB_NO_LOG
+    - Content: **`53,2055,9200`**
     - Description: **PORT: loopback disable log for ports**
 
 #### GeoIP settings
@@ -280,8 +276,8 @@ add following api url with your `<LICENSE-KEY>`
 
 - create groups as you need, for example create a default group for allow access to public network
   > you need later to create the firewall rules
-  - Name: **GROUP_N_NET_D**
-  - Description: **allow to public network default access**
+  - Name: **G_PUB_NET_D**
+  - Description: **default public network access**
   - Members: **_add the interfaces you want to allow access the network with default firewall rules_**
   - GUI groups: **checked**
 
@@ -292,16 +288,16 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
 
 ![Port Forward NAT Firewall](/assets/img/posts/opnsense/Port_Forward_NAT_Firewall_1684418308939_0.png)
 
-- Description: **FORWARD: NTP requests to internal NTP**
+- Description: **PF:: LAN: forward NTP to local IP**
   - Interface: **_select all interfaces, where you want forward requests_**
   - TCP/IP Version: **IPv4+IPV6**
-  - Protocol: **TCP/UDP**
+  - Protocol: **UDP**
   - Source / Invert: **unchecked**
-  - Source: **SUB_RFC_1918**
+  - Source: **SUB_RFC1918**
   - Destination / Invert: **checked**
-  - Destination: **IP_DNS_NTP_INSIDE**
+  - Destination: **IP_S_DNS_NTP_INTERN**
   - Destination port range: **123 - 123**
-  - Redirect target IP: **IP_DNS_NTP_INSIDE**
+  - Redirect target IP: **IP_S_DNS_NTP_INTERN**
   - Log: **checked**
   - Filter rule association: **None**
 
@@ -310,6 +306,8 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
 #### Floating
 
 ![Floating Rules Firewall](/assets/img/posts/opnsense/Floating_Rules_Firewall_1684417217425_0.png)
+
+> TODO: this part needs to be updated
 
 - Description: **BLOCK:: F: all mdns on port 5353**
   - Action: **Block**
@@ -347,7 +345,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Source / Invert: **unchecked**
   - Source: **any**
   - Destination / Invert: **checked**
-  - Destination: **IP_DNS_NTP_INSIDE**
+  - Destination: **IP_S_DNS_NTP_INTERN**
   - Destination port range: **PORT_DNS_BLOCK - PORT_DNS_BLOCK**
   - Log: **checked**
 - Description: **ALLOW: f:: NTP requested to internal NTP**
@@ -360,7 +358,7 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Source / Invert: **unchecked**
   - Source: **SUB_RFC_1918**
   - Destination / Invert: **unchecked**
-  - Destination: **IP_DNS_NTP_INSIDE**
+  - Destination: **IP_S_DNS_NTP_INTERN**
   - Destination port range: **NTP - NTP**
   - Log: **checked**
 - Description: **BLOCK:: F: no rule - ipv4**
@@ -417,45 +415,45 @@ we forward all traffic to NTP (123) to the firewall (a block firewall rule will 
   - Destination: **any**
   - Log: **checked**
 
-#### GROUP_N_NET_D
+#### G_PUB_NET_D
 
-![GROUP_N_NET_D Rules Firewall](/assets/img/posts/opnsense/GROUP_N_NET_D_Rules_Firewall_1684416035121_0.png)
+![G_PUB_NET_D Rules Firewall](/assets/img/posts/opnsense/GROUP_N_NET_D_Rules_Firewall_1684416035121_0.png)
 
 - Description: **BLOCK:: GPND: DNS (outside)**
   - Action: **Block**
   - Quick: **checked**
-  - Interface: **GROUP_N_NET_D**
+  - Interface: **G_PUB_NET_D**
   - Direction: **in**
   - TCP/IP Version: **IPv4+IPV6**
   - Protocol: **TCP/UDP**
   - Source / Invert: **unchecked**
   - Source: **any**
   - Destination / Invert: **checked**
-  - Destination: **IP_DNS_NTP_INSIDE**
+  - Destination: **IP_S_DNS_NTP_INTERN**
   - Destination port range: **PORT_DNS_BLOCK - PORT_DNS_BLOCK**
   - Log: **checked**
 - Description: **ALLOW:: GPND: DNS (inside)**
   - Action: **Pass**
   - Quick: **checked**
-  - Interface: **GROUP_N_NET_D**
+  - Interface: **G_PUB_NET_D**
   - Direction: **in**
   - TCP/IP Version: **IPv4+IPV6**
   - Protocol: **TCP/UDP**
   - Source / Invert: **unchecked**
-  - Source: **GROUP_N_NET_D net**
+  - Source: **G_PUB_NET_D net**
   - Destination / Invert: **unchecked**
-  - Destination: **IP_DNS_NTP_INSIDE**
+  - Destination: **IP_S_DNS_NTP_INTERN**
   - Destination port range: **DNS - DNS**
   - Log: **checked**
 - Description: **ALLOW:: GPND: internet access (ipv4)**
   - Action: **Pass**
   - Quick: **checked**
-  - Interface: **GROUP_N_NET_D**
+  - Interface: **G_PUB_NET_D**
   - Direction: **in**
   - TCP/IP Version: **IPv4**
   - Protocol: **any**
   - Source / Invert: **unchecked**
-  - Source: **GROUP_N_NET_D net**
+  - Source: **G_PUB_NET_D net**
   - Destination / Invert: **checked**
   - Destination: **SUB_RFC1918_BOGON_LOCAL**
   - Log: **checked**
@@ -519,10 +517,10 @@ following fields are recommended to be filled to configure the dhcp service:
 - Enable: **checked**
 - Range: **_specify DHCP range for automatic IP assignment to devices_**
 - DNS servers: **192.168.1.1**
-  > _remember we defined the **DNS** server under **[Aliases](#aliases)** with the alias `IP_DNS_NTP_INSIDE`_
+  > _remember we defined the **DNS** server under **[Aliases](#aliases)** with the alias `IP_S_DNS_NTP_INTERN`_
 - Gateway: **_set the gateway for your subnet_**
 - NTP servers: **192.168.1.1**
-  > _remember we defined the **NTP** server under **[Aliases](#aliases)** with the alias `IP_DNS_NTP_INSIDE`_
+  > _remember we defined the **NTP** server under **[Aliases](#aliases)** with the alias `IP_S_DNS_NTP_INTERN`_
 
 ### // Dynamic DNS
 
@@ -533,8 +531,8 @@ following fields are recommended to be filled to configure the dhcp service:
   - Service: Cloudflare
   - Username: E-Mail address of your account
   - Password: Global API key for your account (Open Cloudflare > My Account > API Tokens > Global API Key > View)
-  - Zone: your.domain (e.g. arminreiter.com)
-  - Hostname: full domain name you want to update (e.g. dyn.arminreiter.com)
+  - Zone: your.domain (e.g. example.com)
+  - Hostname: full domain name you want to update (e.g. dyn.example.com)
   - Check ip method: Interface
   - Force SSL: true
   - Interface to monitor: WAN
@@ -679,7 +677,7 @@ Monit
   - Mozilla Telemetry
   - Windows Problem Reporting
 - Storage & Backup
-  - all execpt
+  - all except
     - Google Drive
     - Microsoft OneDrive
 - VOIP
@@ -731,3 +729,8 @@ Monit
   - <https://binaryimpulse.com/2022/11/opnsense-performance-tuning-for-multi-gigabit-internet>{:target="\_blank"}
   - <https://www.reddit.com/r/OPNsenseFirewall/comments/b2uhpw/performance_tuning_help>{:target="\_blank"}
   - <https://calomel.org/freebsd_network_tuning.html>{:target="\_blank"}
+  - <https://docs.opnsense.org/troubleshooting/performance.html>{:target="\_blank"}
+  - <https://www.reddit.com/r/opnsense/comments/14li2c7/10gbps_speed/>{:target="\_blank"}
+  - <https://www.reddit.com/r/opnsense/comments/17fjbbw/opnsense_on_proxmox_10gb_network_woes/>{:target="\_blank"}
+  - <https://forum.opnsense.org/index.php?topic=31830.0>{:target="\_blank"}
+  - <https://forum.opnsense.org/index.php?topic=18754.150>{:target="\_blank"}
