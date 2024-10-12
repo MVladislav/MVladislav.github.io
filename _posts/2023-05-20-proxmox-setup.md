@@ -1084,7 +1084,7 @@ cloud init custom config:
 ```sh
 # add cloud init config to install guest agent on first start
 $mkdir -p /var/lib/vz/snippets
-$cat <<EOF >/var/lib/vz/snippets/ubuntu.yaml
+$cat <<'EOF' >/var/lib/vz/snippets/ubuntu.yaml
 #cloud-config
 keyboard:
   layout: "de"
@@ -1109,16 +1109,16 @@ $qm template 9999
 > _Example for setup ubuntu-24.04-live-server cloud-init template over autoinstall,
 > which installs in this example for as client usage 'ubuntu-desktop-minimal'_
 >
-> > - NOTE: change **iso** `ubuntu-24.04-live-server-amd64.iso` as you needed (also the url for download)
+> > - NOTE: change **iso** `ubuntu-24.04.1-live-server-amd64.iso` as you needed (also the url for download)
 > > - NOTE: change **vm-id** `9998` as you needed
 > > - NOTE: check **storage-name** `local-zfs` for your needs (maybe your's is local-lvm)
 > > - NOTE: check **SHA512_PASSPHRASE** and **LUKS_PASSPHRASE** to be updated with your credentials
 
-download the ubuntu-server-24.04 image:
+download the ubuntu-server-24.04 live image:
 
 ```sh
-$wget https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso \
--O /var/lib/vz/template/iso/ubuntu-24.04-live-server-amd64.iso
+$wget https://releases.ubuntu.com/24.04/ubuntu-24.04.1-live-server-amd64.iso \
+-O /var/lib/vz/template/iso/ubuntu-24.04.1-live-server-amd64.iso
 ```
 
 verify the sha256 hash:
@@ -1126,7 +1126,7 @@ verify the sha256 hash:
 ```sh
 $cd /var/lib/vz/template/iso && \
 curl -s https://releases.ubuntu.com/24.04/SHA256SUMS | \
-grep "ubuntu-24.04-live-server-amd64.iso" | \
+grep "ubuntu-24.04.1-live-server-amd64.iso" | \
 sha256sum -c - ; cd --
 ```
 
@@ -1141,7 +1141,7 @@ add empty drive and iso:
 
 ```sh
 $qm set 9998 --scsihw virtio-scsi-single --scsi0 local-zfs:32,ssd=1,discard=on,iothread=1
-$qm set 9998 --scsi1 local-zfs:iso/ubuntu-24.04-live-server-amd64.iso,media=cdrom
+$qm set 9998 --scsi1 local-zfs:iso/ubuntu-24.04.1-live-server-amd64.iso,media=cdrom
 ```
 
 setup additional VM properties:
@@ -1165,46 +1165,78 @@ cloud init custom autoinstall config:
 # add cloud init config to install guest agent and ubuntu client desktop on first start
 $mkdir -p /var/lib/vz/snippets
 $touch /var/lib/vz/snippets/meta-data
-$cat <<EOF >/var/lib/vz/snippets/user-data
+$cat <<'EOF' >/var/lib/vz/snippets/user-data
 #cloud-config
+
+# skip interactive question "Continue with autoinstall?"
+runcmd:
+  - [eval, 'echo $(cat /proc/cmdline) "autoinstall" > /root/cmdline']
+  - [eval, 'mount -n --bind -o ro /root/cmdline /proc/cmdline']
+  - [eval, 'snap restart subiquity.subiquity-server']
+  - [eval, 'snap restart subiquity.subiquity-service']
+
 autoinstall:
   version: 1
   locale: en_US
   keyboard:
     layout: de
-  identity:
-    hostname: 9GB9qiabF1kDD8W1RFQ9
-    username: iwashere
-    password: 'SHA512_PASSPHRASE' # pragma: allowlist secret
+  refresh-installer:
+    update: yes
+  source:
+    id: ubuntu-server-minimal
+    search_drivers: true
   storage:
     layout:
-      name: lvm
+      name: lvm # lvm | zfs
       sizing-policy: all
-      password: LUKS_PASSPHRASE
+      # change afterwards with: `$sudo cryptsetup luksChangeKey /dev/... -S 0`
+      password: <LUKS_PLAIN_PASSPHRASE>  # pragma: allowlist secret
+  identity:
+    hostname: EttNjUIgCrVStbNpGTmz
+    username: groot
+    # create with: `$mkpasswd -m sha-512`
+    password: '<SHA512_PASSPHRASE>' # pragma: allowlist secret
   ssh:
     install-server: yes
     authorized-keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPT2hL6eFCOia2N6NqaxcmCl9l6vw4pcj7H3qFMGAtST infra-default
+      - <AUTH_KEY>
     allow-pw: no
-  source:
-    search_drivers: true
   packages:
     - qemu-guest-agent
+    - vim
     - ubuntu-desktop-minimal
+  late-commands:
+    # Update GRUB configuration
+    - curtin in-target --target=/target -- sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
+    - curtin in-target --target=/target -- sed -i 's/^GRUB_CMDLINE_LINUX=".*"/GRUB_CMDLINE_LINUX=""/' /etc/default/grub
+    # Run update-grub after making changes
+    - curtin in-target --target=/target -- update-grub
+    - curtin in-target --target=/target -- systemctl disable systemd-networkd-wait-online.service
+    - curtin in-target --target=/target -- systemctl stop systemd-networkd-wait-online.service
 EOF
+```
 
+```sh
 $cd /var/lib/vz/snippets && \
-mkisofs -V cidata -lJR -o /var/lib/vz/template/iso/cloud-init.iso user-data meta-data && \
+mkisofs -input-charset 'utf-8' -V cidata -lJR -o /var/lib/vz/template/iso/cloud-init.iso user-data meta-data && \
 cd --
 
 $qm set 9998 --scsi2 local-zfs:iso/cloud-init.iso,media=cdrom
 $qm set 9998 --boot order='scsi0;scsi1'
 ```
 
-convert VM as template:
+remove not needed sources after install finished:
 
 ```sh
-$qm template 9998
+$qm set 9998 --delete scsi1
+$qm set 9998 --delete scsi2
+```
+
+after you not need anymore the installers remove them as credentials are else stored on server:
+
+```sh
+$rm /var/lib/vz/snippets/user-data
+$rm /var/lib/vz/template/iso/cloud-init.iso
 ```
 
 ---
