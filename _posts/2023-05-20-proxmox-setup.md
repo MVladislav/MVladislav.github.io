@@ -705,7 +705,7 @@ run following command to perform the changes:
 $sysctl --system
 ```
 
-## \\\\ PCI Passthrough
+## \\\\ Grub Optimizing & PCI Passthrough
 
 Unlocking the Power of **GPU** and **USB-PCI** Card **Passthrough** in Proxmox
 
@@ -777,7 +777,10 @@ $nano /etc/default/grub
 locate the line starting with `GRUB_CMDLINE_LINUX_DEFAULT` and modify it as follows:
 
 ```properties
-GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction initcall_blacklist=sysfb_init hugepagesz=1G hugepages=16 hugepagesz=2M default_hugepagesz=2M amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1"
+GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=force_enable iommu=pt amd_pstate=passive amd_pstate.shared_mem=1 cpufreq.default_governor=schedutil processor.max_cstate=4"
+
+# (optional GPU) extend for better GPU support with:
+GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=force_enable iommu=pt amd_pstate=passive amd_pstate.shared_mem=1 cpufreq.default_governor=schedutil processor.max_cstate=4 amdgpu.sg_display=0 pcie_acs_override=downstream,multifunction initcall_blacklist=sysfb_init"
 ```
 
 update the changes:
@@ -796,11 +799,13 @@ $cat /proc/cmdline
 
 edit the kernel command line by running the following command:
 
-> _Note: Before running the command, verify the first information `root=ZFS=rpool/ROOT/pve-1 boot=zfs`
-> and update it if necessary._
+> _Note: Before running the command, verify the first information `root=ZFS=rpool/ROOT/pve-1 boot=zfs` and update it if necessary._
 
 ```sh
-$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=force_enable iommu=pt pcie_acs_override=downstream,multifunction initcall_blacklist=sysfb_init hugepagesz=1G hugepages=16 hugepagesz=2M default_hugepagesz=2M amdgpu.sg_display=0 amd_pstate=passive amd_pstate.shared_mem=1' > /etc/kernel/cmdline
+$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=force_enable iommu=pt amd_pstate=passive amd_pstate.shared_mem=1 cpufreq.default_governor=schedutil processor.max_cstate=4' > /etc/kernel/cmdline
+
+# (optional GPU) extend for better GPU support with:
+$echo 'root=ZFS=rpool/ROOT/pve-1 boot=zfs quiet amd_iommu=force_enable iommu=pt amd_pstate=passive amd_pstate.shared_mem=1 cpufreq.default_governor=schedutil processor.max_cstate=4 amdgpu.sg_display=0 pcie_acs_override=downstream,multifunction initcall_blacklist=sysfb_init' > /etc/kernel/cmdline
 ```
 
 update the changes:
@@ -817,80 +822,118 @@ $cat /proc/cmdline
 
 #### Parameter Explanation
 
-`amd_iommu=force_enable`:
+| Topic                             | Key                        | Good Value                          | Optional Value                | Purpose                                                                   |
+| :-------------------------------- | :------------------------- | :---------------------------------- | :---------------------------- | :------------------------------------------------------------------------ |
+| **AMD-Specific Tweaks**           |                            |                                     |                               |                                                                           |
+|                                   | `amd_iommu`                | `force_enable`                      | `on`                          | Enables AMD-Vi (IOMMU) for PCI passthrough (required for GPU/VFIO).       |
+|                                   | `amd_pstate`               | `passive`                           | `active` (if kernel supports) | Uses AMD's P-State driver for dynamic CPU scaling (Zen 3/4+).             |
+|                                   | `amd_pstate.shared_mem`    | `1`                                 | -                             | Enables shared memory mode for Zen 4 CPUs.                                |
+|                                   | `amdgpu.sg_display`        | `0`                                 | `1` (default)                 | Disables scatter-gather display for APUs to fix flickering/artifacts.     |
+| **CPU Power Management**          |                            |                                     |                               |                                                                           |
+|                                   | `cpufreq.default_governor` | `schedutil` or `performance` (home) | `ondemand` (business)         | Controls CPU frequency scaling (performance vs. power efficiency).        |
+|                                   | `cpuidle.governor`         | `teo`                               | `menu` (legacy)               | Optimizes idle states for AMD CPUs (low latency).                         |
+|                                   | `processor.max_cstate`     | `5` or `4` or `3`                   | `1` or `2` (business)         | Limits deep sleep states (C-states) to reduce VM stuttering.              |
+| **Memory Optimization**           |                            |                                     |                               |                                                                           |
+|                                   | `default_hugepagesz`       | `1G` (if supported)                 | `2M`                          | Sets default hugepage size (improves VM memory efficiency).               |
+|                                   | `hugepages`                | `8192` (16GB of 2MB pages)          | Adjust based on RAM           | Preallocates static hugepages for VMs/containers.                         |
+|                                   | `hugepagesz`               | `1G` or `2M`                        | -                             | Explicitly defines hugepage size (required if not using default).         |
+|                                   | `transparent_hugepage`     | `never` (home)                      | `madvise` (business)          | Disables auto hugepage allocation for manual control.                     |
+| **IOMMU/PCI Passthrough**         |                            |                                     |                               |                                                                           |
+|                                   | `iommu`                    | `pt`                                | `on`                          | Configures IOMMU in passthrough mode (isolates devices for VMs).          |
+|                                   | `pcie_acs_override`        | `downstream,multifunction`          | -                             | Bypasses PCIe ACS checks (unsafe but fixes passthrough on some hardware). |
+| **Kernel/Graphics Fixes**         |                            |                                     |                               |                                                                           |
+|                                   | `initcall_blacklist`       | `sysfb_init`                        | -                             | Fixes AMD GPU/framebuffer conflicts during boot.                          |
+|                                   | `nofb`                     | -                                   | _Add if boot stalls_          | Disables framebuffer to resolve GPU passthrough conflicts.                |
+|                                   | `nomodeset`                | -                                   | _Add temporarily_             | Skips GPU driver loading at boot (debugging passthrough).                 |
+| **Legacy/Intel (Ignore for AMD)** |                            |                                     |                               |                                                                           |
+|                                   | `intel_pstate`             | `disable`                           | -                             | Disables Intel's P-State driver (irrelevant for AMD CPUs).                |
 
-Enables AMD's IOMMU (Input-Output Memory Management Unit) technology, also known as AMD-Vi (AMD Virtualization for I/O). It is required for **GPU** passthrough, as it provides hardware support for input/output virtualization and allows direct device assignment to virtual machines.
+##### Extended Descriptions `amd_iommu`:
 
-`iommu=pt`:
+- **Purpose**: Enables AMD's **IOMMU** (Input-Output Memory Management Unit), a hardware feature required for PCI passthrough.
+- **Details**:
+  - `force_enable` overrides BIOS settings if IOMMU is disabled.
+  - Required for GPU passthrough (e.g., assigning an AMD GPU to a VM).
 
-Sets the IOMMU mode to "passthrough." It ensures that the IOMMU is configured to allow direct assignment of devices, such as **GPUs**, to virtual machines without any interference from the host operating system.
+##### Extended Descriptions `iommu`:
 
-`pcie_acs_override=downstream,multifunction`:
+- **Purpose**: Configures IOMMU behavior.
+- **Details**:
+  - `pt` (passthrough mode) isolates devices into separate IOMMU groups for direct VM assignment.
+  - `on` enables full IOMMU but may group devices together (less flexible).
 
-Is related to PCIe ACS (Access Control Services) override. It helps in addressing potential compatibility issues when passing through certain PCIe devices. By specifying "downstream" and "multifunction," you are indicating that ACS override should be enabled for downstream devices and multifunction devices.
+##### Extended Descriptions `pcie_acs_override`:
 
-- Downstream:
-  This value means that ACS is overridden for downstream ports of PCIe switches. This helps ensure devices connected to PCIe switches are placed into separate IOMMU groups.
-- Multifunction:
-  This value ensures that ACS is overridden for multifunction devices. Multifunction devices are PCIe devices that have multiple functions on a single device, such as Ethernet controllers with multiple ports.
+- **Purpose**: Bypasses PCIe ACS checks for passthrough.
+- **Details**:
+  - ⚠️ **Security Risk**: Weakens isolation between devices. Use only in trusted environments.
+  - `downstream`: Targets devices behind PCIe switches.
+  - `multifunction`: Splits multi-function devices (e.g., dual NICs).
 
-`nofb`:
+##### Extended Descriptions `nofb`:
 
-Disables the framebuffer, which can help avoid conflicts or issues with graphics devices when performing **GPU** passthrough.
+- **Purpose**: Disables framebuffer to resolve GPU conflicts.
+- **Details**:
+  - Useful if the host OS interferes with GPU passthrough (e.g., error `vfio-pci: Cannot reset device`).
 
-`nomodeset`:
+##### Extended Descriptions `nomodeset`:
 
-**Prevents the kernel from loading video drivers** and setting display modes. It can be useful when passing through a **GPU** to a virtual machine, as it ensures that the GPU is **not actively used by the host operating system**.
+- **Purpose**: Prevents the kernel from initializing GPU drivers.
+- **Details**:
+  - Forces the system to use basic video modes (helpful for debugging passthrough).
 
-`initcall_blacklist=sysfb_init`:
+##### Extended Descriptions `initcall_blacklist`:
 
-Adds the **sysfb_init** function to the initcall **blacklist**. It prevents the specified function from being called during the kernel initialization process. This can be useful if there are conflicts or issues related to framebuffer initialization.
+- **Purpose**: Skips problematic kernel functions during boot.
+- **Details**:
+  - `sysfb_init`: Fixes conflicts when AMD GPUs and firmware framebuffers clash.
 
-`default_hugepagesz=1G`:
+##### Extended Descriptions `default_hugepagesz` / `hugepagesz` / `hugepages`:
 
-Hugepages are memory pages that are significantly larger than the standard 4 KB pages.
-They can be 2 MB, 1 GB, or even larger.
-Hugepages help reduce overhead in memory management and TLB (Translation Lookaside Buffer) misses,
-especially for applications with large memory requirements, like databases or virtual machines.
+- **Purpose**: Optimizes memory for VMs.
+- **Details**:
+  - **Hugepages** reduce memory fragmentation and TLB misses (critical for databases/VMs).
+  - Use `1G` pages if your CPU supports them (check with `grep pdpe1gb /proc/cpuinfo`).
+  - Allocate `hugepages` **before** starting VMs to avoid host OOM errors.
+  - Verify with `cat /proc/meminfo | grep HugePages`
 
-Setting the default_hugepagesz is useful when specific applications or services benefit from large memory pages.
-Some virtualization setups, especially those using GPU passthrough with **amdgpu**,
-can gain performance benefits by allocating large, contiguous blocks of memory,
-making this setting beneficial in such scenarios.
+##### Extended Descriptions `amdgpu.sg_display`:
 
-`hugepagesz=1G`:
+- **Purpose**: Fixes APU display issues.
+- **Details**:
+  - `0` disables scatter-gather display (fixes flickering on APUs like Ryzen 5xxxG/7xxxG).
 
-It allows you to explicitly set the size of hugepages to be used.
-Common values include 2M for 2 MB hugepages and 1G for 1 GB hugepages.
+##### Extended Descriptions `amd_pstate`:
 
-Explicitly setting the hugepagesz is essential when you want to ensure a specific size for hugepages.
-This can be crucial for certain applications that require a particular hugepage size for optimal performance,
-including some virtualization setups that involve GPU passthrough.
+- **Purpose**: AMD's CPU frequency scaling driver.
+- **Details**:
+  - `passive`: Balances power and performance (uses CPPC for Zen 3/4).
+  - `active`: Aggressive scaling (requires kernel ≥6.3).
 
-`hugepages=1`:
+##### Extended Descriptions `cpufreq.default_governor`:
 
-Specifies how many hugepages should be reserved.
-The total memory allocated for hugepages equals `hugepages * hugepagesz`.
+- **Purpose**: Controls the selection of CPU idle states (C-states) to balance power saving and performance.
+- **Details**:
+  - `performance`: Locks CPU at max frequency (best for VMs).
+  - `schedutil`: Balances performance/power using kernel scheduler hints (modern alternative to `ondemand`).
 
-It's beneficial in cases where you want to reserve a specific amount of memory for applications or services that can take advantage of hugepages,
-such as virtual machines using GPU passthrough.
-Allocating a sufficient number of hugepages ensures that these applications have fast, contiguous memory access.
+##### Extended Descriptions `cpuidle.governor`:
 
-`amdgpu.sg_display=0`:
+- **Purpose**: Controls how the CPU selects idle states (C-states) to balance power saving and performance.
+- **Details**:
+  - `teo`: is optimized for intermittent workloads on AMD systems.
+  - `menu`: dynamically selects the optimal idle state (common default).
+  - `ladder`: is simpler and may benefit older or real-time systems.
+  - `haltpoll`: is tailored for virtual machine environments (KVM).
+  - Check current governor `cat /sys/devices/system/cpu/cpuidle/current_governor`
+  - List available governors `cat /sys/devices/system/cpu/cpuidle/available_governors`
 
-Disable S/G (scatter/gather) display (i.e., display from system memory).
-This option is only relevant on APUs.
-Set this option to 0 to disable S/G display if you experience flickering or other issues under memory pressure and report the issue.
+##### Extended Descriptions `processor.max_cstate`:
 
-`amd_pstate=passive`:
-
-The AMD CPU frequency scaling driver (`amd_pstate`) dynamically adjusts the CPU frequency and voltage based on the system's load.
-When set to "passive," it allows the CPU to scale down its frequency and voltage when the system is idle but doesn't actively scale up when there's increased demand.
-This can save power and reduce heat production when the CPU is not under heavy load.
-
-`amd_pstate.shared_mem=1`:
-
-Shared memory support allows the AMD CPU frequency scaling driver to share information between CPU cores, facilitating better coordination and synchronization between cores. This can lead to more efficient frequency scaling decisions, especially in multi-core processors, improving overall system performance and responsiveness.
+- **Purpose**: Limits the deepest CPU idle state to reduce latency and minimize VM stuttering.
+- **Details**:
+  - Higher values (e.g., 3–5) allow deeper sleep states for more power saving.
+  - Lower values (e.g., 1–2) restrict sleep depth for better responsiveness.
 
 ### // Setup VFIO Framework
 
